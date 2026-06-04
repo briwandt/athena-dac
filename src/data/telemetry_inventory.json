@@ -1,0 +1,42 @@
+[
+  {
+    "name": "Windows Security Events",
+    "status": "enabled",
+    "source": "Domain Controllers"
+  },
+  {
+    "name": "EDR Process Events",
+    "status": "enabled",
+    "source": "Elastic Defend"
+  },
+  {
+    "name": "DNS Logs",
+    "status": "missing",
+    "source": "Internal DNS Servers"
+  },
+  {
+    "name": "Sysmon",
+    "status": "missing",
+    "source": "Windows Endpoints"
+  },
+  {
+    "name": "PowerShell Script Block Logging",
+    "status": "missing",
+    "source": "Windows Endpoints"
+  },
+  {
+    "name": "Firewall Logs",
+    "status": "enabled",
+    "source": "Palo Alto"
+  },
+  {
+    "name": "AWS CloudTrail",
+    "status": "enabled",
+    "source": "AWS"
+  },
+  {
+    "name": "Okta Identity Logs",
+    "status": "enabled",
+    "source": "Okta"
+  }
+]

@@ -1,0 +1,41 @@
+[
+  {
+    "technique_id": "T1059",
+    "technique_name": "Command and Scripting Interpreter",
+    "score": 2,
+    "status": "partial",
+    "available_telemetry": [
+      "edr_process_events",
+      "windows_security_events"
+    ],
+    "missing_telemetry": [
+      "powershell_script_block_logging"
+    ],
+    "reason": "Missing telemetry: powershell_script_block_logging"
+  },
+  {
+    "technique_id": "T1071",
+    "technique_name": "Application Layer Protocol",
+    "score": 2,
+    "status": "partial",
+    "available_telemetry": [
+      "edr_process_events"
+    ],
+    "missing_telemetry": [
+      "dns_logs"
+    ],
+    "reason": "Missing telemetry: dns_logs"
+  },
+  {
+    "technique_id": "T1003",
+    "technique_name": "OS Credential Dumping",
+    "score": 3,
+    "status": "strong",
+    "available_telemetry": [
+      "edr_process_events",
+      "windows_security_events"
+    ],
+    "missing_telemetry": [],
+    "reason": "All required telemetry available."
+  }
+]

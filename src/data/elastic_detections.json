@@ -1,0 +1,23 @@
+[
+  {
+    "rule_name": "Suspicious PowerShell Script Execution",
+    "platform": "Elastic Security",
+    "query_language": "EQL",
+    "mapped_technique": "T1059",
+    "required_telemetry": ["powershell_script_block_logging", "edr_process_events"]
+  },
+  {
+    "rule_name": "Potential Credential Dumping via LSASS Access",
+    "platform": "Elastic Security",
+    "query_language": "KQL",
+    "mapped_technique": "T1003",
+    "required_telemetry": ["edr_process_events", "windows_security_events"]
+  },
+  {
+    "rule_name": "Suspicious DNS Beaconing",
+    "platform": "Elastic Security",
+    "query_language": "KQL",
+    "mapped_technique": "T1071",
+    "required_telemetry": ["dns_logs"]
+  }
+]

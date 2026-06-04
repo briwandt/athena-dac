@@ -1,0 +1,8 @@
+{
+  "windows_security_events": true,
+  "powershell_script_block_logging": false,
+  "dns_logs": false,
+  "edr_process_events": true,
+  "aws_cloudtrail": true,
+  "okta_logs": true
+}

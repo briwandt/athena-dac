@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATT&CK Coverage & Gap Mapping Dashboard</title>
+    <meta name="description" content="An interactive dashboard that maps raw security logs to the MITRE ATT&CK framework, identifying detection gaps and unmonitored blind spots.">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo-container">
+                <div class="logo-icon">⚔️</div>
+                <div class="logo-text">
+                    <h1>ATT&CK Coverage</h1>
+                    <span>Gap Mapping & Analytics</span>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-title">Simulated Campaigns</div>
+                <div id="campaign-list" class="nav-section" style="gap: 0.5rem;">
+                    <!-- Dynamically populated via app.js -->
+                </div>
+            </div>
+
+            <div class="nav-section" style="margin-top: 1rem;">
+                <button class="btn btn-primary" id="open-upload-btn" style="width: 100%; justify-content: center;">
+                    📥 Upload Custom Logs
+                </button>
+            </div>
+
+            <div class="sidebar-footer">
+                <p>Designed for Cybersecurity Portfolios</p>
+                <p style="font-size: 0.65rem; color: var(--text-muted); margin-top: 0.5rem;">v1.2.0 • Mitre ATT&CK v14</p>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="main-content">
+            <!-- Header Section -->
+            <header class="dashboard-header">
+                <div class="campaign-info">
+                    <h2 id="campaign-title">APT29 (Spearphishing & Lateral Movement)</h2>
+                    <p id="campaign-desc">Simulates a phishing attachment execution leading to PowerShell payloads and LSASS memory dump.</p>
+                </div>
+                <div class="header-actions">
+                    <!-- Actions can go here -->
+                </div>
+            </header>
+
+            <!-- Metrics Statistics Row -->
+            <section class="stats-container" aria-label="Coverage Statistics">
+                <div class="stat-card total" id="card-total">
+                    <span class="stat-label">Telemetry Events</span>
+                    <div class="stat-value" id="metric-total">0</div>
+                </div>
+                <div class="stat-card full" id="card-full">
+                    <span class="stat-label">Alerted / Covered</span>
+                    <div class="stat-value" id="metric-full">0</div>
+                </div>
+                <div class="stat-card gap" id="card-gap">
+                    <span class="stat-label">Telemetry Gaps</span>
+                    <div class="stat-value" id="metric-gap">0</div>
+                </div>
+                <div class="stat-card blindspot" id="card-blindspot">
+                    <span class="stat-label">Blind Spots</span>
+                    <div class="stat-value" id="metric-blindspot">0</div>
+                </div>
+            </section>
+
+            <!-- MITRE ATT&CK Matrix Panel -->
+            <section class="matrix-card" aria-labelledby="matrix-title">
+                <div class="section-header">
+                    <h3 class="section-title" id="matrix-title">🛡️ MITRE ATT&CK Coverage Heatmap</h3>
+                    <div class="matrix-legend">
+                        <div class="legend-item">
+                            <div class="legend-color full"></div>
+                            <span>Fully Alerted</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color partial"></div>
+                            <span>Telemetry Gap</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color blindspot"></div>
+                            <span>Blind Spot</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color inactive"></div>
+                            <span>Unmonitored / Inactive</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="matrix-viewport">
+                    <div class="matrix-container" id="mitre-matrix-container">
+                        <!-- Dynamically populated via app.js -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Two-Column Grid: Timeline & Remediation -->
+            <div class="splits-grid">
+                <!-- Log Timeline -->
+                <section class="timeline-card" aria-labelledby="timeline-title">
+                    <div class="section-header">
+                        <h3 class="section-title" id="timeline-title">📜 Chronological Log Timeline</h3>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">Click on a log line to expand raw details</span>
+                    </div>
+                    <div class="timeline-list" id="timeline-list-container">
+                        <!-- Dynamically populated via app.js -->
+                    </div>
+                </section>
+
+                <!-- Remediation Recommendations -->
+                <section class="remediation-card" aria-labelledby="remediation-title">
+                    <div class="section-header">
+                        <h3 class="section-title" id="remediation-title">🛠️ Gap Diagnostics & Remediation</h3>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">Actionable fixes for gaps & blindspots</span>
+                    </div>
+                    <div class="remediation-list" id="remediation-list-container">
+                        <!-- Dynamically populated via app.js -->
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Upload Logs Modal Overlay -->
+    <div class="modal-overlay" id="upload-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Ingest Custom Security Logs</h3>
+                <button class="modal-close" id="close-modal-btn">&times;</button>
+            </div>
+            
+            <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                Drag and drop a JSON log file or paste your log contents below. The engine will parse the schema, extract MITRE elements, and recalculate your dashboard coverage in real-time.
+            </p>
+
+            <div class="upload-area" id="upload-area">
+                <input type="file" id="file-upload" accept=".json" style="display: none;">
+                <span class="upload-icon">📂</span>
+                <span class="upload-text">Click to choose a JSON file or drag it here</span>
+                <span class="upload-subtext">Supports single log objects or JSON arrays</span>
+            </div>
+
+            <div>
+                <label for="pasted-logs" class="text-area-label">Or Paste Raw JSON Logs:</label>
+                <textarea id="pasted-logs" class="log-textarea" placeholder='[
+  {
+    "@timestamp": "2026-05-24T12:00:00Z",
+    "event.action": "process-created",
+    "process.name": "whoami.exe",
+    "host": { "name": "DESKTOP-01" }
+  }
+]'></textarea>
+                <div id="validation-error" style="color: var(--color-blindspot); font-size: 0.75rem; margin-top: 0.25rem; font-family: var(--font-mono);"></div>
+            </div>
+
+            <button class="btn btn-primary" id="submit-logs-btn" style="justify-content: center; width: 100%;">
+                ⚡ Parse & Map Logs
+            </button>
+        </div>
+    </div>
+
+    <!-- Load JavaScript -->
+    <script src="campaigns.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
