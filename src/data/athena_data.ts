@@ -1128,3 +1128,179 @@ export function generateScopingQueries(hosts: string[], ips: string[], users: st
 
   return { splunk, kql };
 }
+
+// 7. CLIENT-SIDE YAML PARSING
+function unquote(str: string): string {
+  if ((str.startsWith("'") && str.endsWith("'")) || (str.startsWith('"') && str.endsWith('"'))) {
+    return str.substring(1, str.length - 1);
+  }
+  return str;
+}
+
+function parseInlineValue(str: string): any {
+  if (str.toLowerCase() === 'true') return true;
+  if (str.toLowerCase() === 'false') return false;
+  if (/^\d+$/.test(str)) return parseInt(str, 10);
+  if (/^\d+\.\d+$/.test(str)) return parseFloat(str);
+  return str;
+}
+
+function parseInlineArray(str: string): any[] {
+  const inner = str.substring(1, str.length - 1);
+  const items: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  let quoteChar = '';
+  for (let i = 0; i < inner.length; i++) {
+    const char = inner[i];
+    if ((char === "'" || char === '"') && (i === 0 || inner[i-1] !== '\\')) {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuotes = false;
+      } else {
+        current += char;
+      }
+    } else if (char === ',' && !inQuotes) {
+      items.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  items.push(current.trim());
+  return items.map(unquote).map(parseInlineValue);
+}
+
+export function parseYaml(yaml: string): any {
+  const linesSplit = yaml.split('\n');
+  const result: any = {};
+  
+  const stack: { indent: number; key: string | null; val: any }[] = [
+    { indent: -1, key: null, val: result }
+  ];
+
+  for (let i = 0; i < linesSplit.length; i++) {
+    const rawLine = linesSplit[i];
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+
+    const actualIndent = rawLine.length - rawLine.trimStart().length;
+
+    let content = trimmed;
+    const commentIdx = content.indexOf('#');
+    if (commentIdx !== -1) {
+      if (commentIdx === 0 || content[commentIdx - 1] === ' ') {
+        content = content.substring(0, commentIdx).trim();
+      }
+    }
+
+    while (stack.length > 1 && stack[stack.length - 1].indent >= actualIndent) {
+      stack.pop();
+    }
+
+    const stackTop = stack[stack.length - 1];
+
+    if (content.startsWith('-')) {
+      let valText = content.substring(1).trim();
+      valText = unquote(valText);
+
+      const parentRecord = stack[stack.length - 2];
+      if (parentRecord && stackTop.key) {
+        const parentVal = parentRecord.val;
+        if (parentVal && typeof parentVal === 'object' && !Array.isArray(parentVal)) {
+          if (!Array.isArray(parentVal[stackTop.key])) {
+            parentVal[stackTop.key] = [];
+            stackTop.val = parentVal[stackTop.key];
+          }
+        }
+      }
+
+      const targetArray = stackTop.val;
+      if (Array.isArray(targetArray)) {
+        if (valText.includes(':')) {
+          const separator = valText.indexOf(':');
+          const k = valText.substring(0, separator).trim();
+          let v = valText.substring(separator + 1).trim();
+          v = unquote(v);
+          const itemObj = { [k]: parseInlineValue(v) };
+          targetArray.push(itemObj);
+          stack.push({ indent: actualIndent, key: k, val: itemObj });
+        } else {
+          targetArray.push(parseInlineValue(valText));
+        }
+      }
+    } else {
+      const separator = content.indexOf(':');
+      if (separator !== -1) {
+        const key = content.substring(0, separator).trim();
+        let valText = content.substring(separator + 1).trim();
+        
+        let val: any;
+        if (valText.startsWith('[') && valText.endsWith(']')) {
+          val = parseInlineArray(valText);
+        } else if (valText === '') {
+          val = {};
+        } else {
+          valText = unquote(valText);
+          val = parseInlineValue(valText);
+        }
+
+        const parent = stackTop.val;
+        if (parent && typeof parent === 'object' && !Array.isArray(parent)) {
+          parent[key] = val;
+        }
+
+        stack.push({ indent: actualIndent, key, val });
+      }
+    }
+  }
+
+  return result;
+}
+
+export function parseYamlRule(yamlText: string): Rule {
+  const raw = parseYaml(yamlText);
+  
+  const detection: DetectionBlock = {
+    condition: raw.detection?.condition || ""
+  };
+  
+  if (raw.detection && typeof raw.detection === 'object') {
+    for (const [key, val] of Object.entries(raw.detection)) {
+      if (key !== 'condition') {
+        detection[key] = val;
+      }
+    }
+  }
+
+  return {
+    id: raw.id || "temp-id-12345",
+    title: raw.title || "Untitled Sigma Rule",
+    description: raw.description || "",
+    status: raw.status || "experimental",
+    severity: raw.severity || "medium",
+    author: raw.author || "Detection Engineer",
+    date: raw.date || new Date().toISOString().split('T')[0],
+    tags: Array.isArray(raw.tags) ? raw.tags : [],
+    logsource: {
+      category: raw.logsource?.category || "",
+      product: raw.logsource?.product || "",
+      service: raw.logsource?.service || ""
+    },
+    detection,
+    false_positives: Array.isArray(raw.false_positives) ? raw.false_positives : [],
+    remediation: {
+      title: raw.remediation?.title || "Investigate Alert Trigger",
+      steps: Array.isArray(raw.remediation?.steps) 
+        ? raw.remediation.steps 
+        : ["Review raw telemetry around event timestamps.", "Determine if access or behavior was authorized by business needs."],
+      impact: raw.remediation?.impact || undefined,
+      cmd: raw.remediation?.cmd || undefined
+    },
+    yaml_string: yamlText
+  };
+}

