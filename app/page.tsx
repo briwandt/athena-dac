@@ -4,6 +4,18 @@ import { useState, useEffect, useRef } from "react";
 import elasticDetections from "../src/data/elastic_detections.json";
 import telemetryInventory from "../src/data/telemetry_inventory.json";
 import { CAMPAIGNS, Campaign, LogEntry } from "../src/data/campaigns";
+import {
+  RULES,
+  MOCK_TELEMETRY,
+  compileToSplunk,
+  compileToKql,
+  evaluateRuleAgainstRecord,
+  runValidation,
+  TELEMETRY_REQUIREMENTS,
+  analyzeLogQuality,
+  generateScopingQueries
+} from "../src/data/athena_data";
+
 
 // MITRE ATT&CK Matrix Layout (12 core tactics and common techniques)
 const MITRE_SCHEMA = [
@@ -149,7 +161,7 @@ function syntaxHighlight(jsonStr: string) {
 }
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'sandbox' | 'detections' | 'telemetry'>('sandbox');
+  const [activeTab, setActiveTab] = useState<'sandbox' | 'compiler' | 'validation' | 'telemetry_audit' | 'ir_scoper' | 'detections' | 'telemetry'>('sandbox');
   const [activeCampaignId, setActiveCampaignId] = useState<string>('apt29');
   const [highlightedTechId, setHighlightedTechId] = useState<string | null>(null);
   const [expandedLogIndexes, setExpandedLogIndexes] = useState<Set<number>>(new Set());
@@ -158,6 +170,47 @@ export default function Home() {
   const [pastedLogsText, setPastedLogsText] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Athena Compiler State
+  const [selectedRuleIdCompiler, setSelectedRuleIdCompiler] = useState<string>(RULES[0].id);
+
+  // Athena Validation Lab State
+  const [selectedRuleIdValidation, setSelectedRuleIdValidation] = useState<string>(RULES[0].id);
+  const [validationReport, setValidationReport] = useState<any>(null);
+  const [emulationRunning, setEmulationRunning] = useState<boolean>(false);
+
+  // Athena Telemetry Auditor State
+  const [selectedSourceType, setSelectedSourceType] = useState<string>("sysmon");
+  const [auditJsonInput, setAuditJsonInput] = useState<string>("");
+  const [auditReport, setAuditReport] = useState<any>(null);
+
+  // Athena IR Scoper State
+  const [scoperHosts, setScoperHosts] = useState<string>("");
+  const [scoperIps, setScoperIps] = useState<string>("");
+  const [scoperUsers, setScoperUsers] = useState<string>("");
+  const [scoperHashes, setScoperHashes] = useState<string>("");
+  const [scoperQueries, setScoperQueries] = useState<{ splunk: string; kql: string } | null>(null);
+
+  // Sync sample JSON to editor when source type changes
+  useEffect(() => {
+    const sourceToRuleMap: Record<string, string> = {
+      sysmon: "5b4e13d9-9fb2-47de-9852-ff14b9c1d3c5",
+      active_directory: "c46f772e-d00f-48d6-953e-52ebc2b7ab7f",
+      azure_entra: "e4617a22-38e2-411a-8bb7-09d57a9e0f6b",
+      aws: "a24d8b99-a411-4824-9b2d-cf211a7a13fb",
+      dns: "d8d74542-a8b2-4d26-bb21-1d361c47a544"
+    };
+    const defaultRuleId = sourceToRuleMap[selectedSourceType];
+    const defaultLog = MOCK_TELEMETRY[defaultRuleId]?.[0];
+    if (defaultLog) {
+      // Remove label before displaying
+      const { label, ...cleanLog } = defaultLog;
+      setAuditJsonInput(JSON.stringify(cleanLog, null, 2));
+    } else {
+      setAuditJsonInput("{}");
+    }
+    setAuditReport(null);
+  }, [selectedSourceType]);
 
   // References for scrolling elements
   const timelineItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -359,13 +412,41 @@ export default function Home() {
 
         {/* View Mode Tabs */}
         <div className="flex flex-col gap-1">
-          <span className="text-[0.7rem] uppercase text-slate-500 tracking-wider font-semibold mb-2">View Modes</span>
+          <span className="text-[0.7rem] uppercase text-slate-500 tracking-wider font-semibold mb-2">MITRE Workspace</span>
           <button 
             onClick={() => setActiveTab('sandbox')}
             className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'sandbox' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
           >
-            🛡️ Coverage Sandbox
+            🛡️ Campaign Heatmap
           </button>
+
+          <span className="text-[0.7rem] uppercase text-slate-500 tracking-wider font-semibold mt-4 mb-2">Athena Pipeline</span>
+          <button 
+            onClick={() => setActiveTab('compiler')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'compiler' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
+          >
+            🛠️ SIEM Compiler
+          </button>
+          <button 
+            onClick={() => setActiveTab('validation')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'validation' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
+          >
+            🧪 Emulation & Lab
+          </button>
+          <button 
+            onClick={() => setActiveTab('telemetry_audit')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'telemetry_audit' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
+          >
+            📊 Telemetry Auditor
+          </button>
+          <button 
+            onClick={() => setActiveTab('ir_scoper')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'ir_scoper' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
+          >
+            🚨 IR Fast Scoper
+          </button>
+
+          <span className="text-[0.7rem] uppercase text-slate-500 tracking-wider font-semibold mt-4 mb-2">Inventory & Feeds</span>
           <button 
             onClick={() => setActiveTab('detections')}
             className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'detections' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
@@ -376,7 +457,7 @@ export default function Home() {
             onClick={() => setActiveTab('telemetry')}
             className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'telemetry' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
           >
-            📊 Telemetry Inventory
+            📋 Telemetry Inventory
           </button>
         </div>
 
@@ -707,6 +788,676 @@ export default function Home() {
             </div>
           </>
         )}
+
+        {/* Active Tab: SIEM COMPILER */}
+        {activeTab === 'compiler' && (() => {
+          const selectedRule = RULES.find(r => r.id === selectedRuleIdCompiler) || RULES[0];
+          const splunkQuery = compileToSplunk(selectedRule);
+          const kqlQuery = compileToKql(selectedRule);
+          
+          return (
+            <>
+              <header className="border-b border-slate-800/60 pb-5">
+                <h2 className="text-2xl font-bold tracking-tight text-white mb-1 flex items-center gap-2">
+                  🛠️ SIEM Compiler Pipeline
+                </h2>
+                <p className="text-slate-400 text-sm max-w-4xl">
+                  Write detections once in Sigma YAML format, and compile them instantly to high-performance Splunk SPL or Sentinel KQL queries.
+                </p>
+              </header>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Left Column: Rule Selection & YAML Viewer (Span 5) */}
+                <div className="lg:col-span-5 flex flex-col gap-6">
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl">
+                    <label htmlFor="compiler-rule-select" className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-3">
+                      Select Detection Rule
+                    </label>
+                    <select 
+                      id="compiler-rule-select"
+                      value={selectedRuleIdCompiler}
+                      onChange={(e) => setSelectedRuleIdCompiler(e.target.value)}
+                      className="w-full bg-[#05070c] border border-slate-800 text-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      {RULES.map(r => (
+                        <option key={r.id} value={r.id}>{r.title}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 flex-1 flex flex-col backdrop-blur-xl">
+                    <div className="flex justify-between items-center mb-4">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sigma YAML Spec</span>
+                      <button 
+                        id="copy-yaml-btn"
+                        onClick={() => handleCopyCommand(selectedRule.yaml_string, "copy-yaml-btn")}
+                        className="text-[0.7rem] bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 font-semibold px-2.5 py-1 rounded transition-all cursor-pointer"
+                      >
+                        Copy YAML
+                      </button>
+                    </div>
+                    <pre className="flex-1 bg-[#05070c] border border-slate-800/80 p-4 rounded-xl text-[0.72rem] font-mono text-indigo-300 overflow-x-auto whitespace-pre leading-relaxed select-all">
+                      {selectedRule.yaml_string}
+                    </pre>
+                  </div>
+                </div>
+
+                {/* Right Column: Compiled Target SIEMs (Span 7) */}
+                <div className="lg:col-span-7 flex flex-col gap-6">
+                  {/* Metadata Card */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[0.62rem] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${selectedRule.severity === 'critical' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : selectedRule.severity === 'high' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
+                        {selectedRule.severity} Severity
+                      </span>
+                      <span className="text-[0.7rem] text-slate-500 font-mono">Status: <span className="text-emerald-400">{selectedRule.status}</span></span>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white mb-2">{selectedRule.title}</h3>
+                      <p className="text-slate-400 text-xs leading-relaxed">{selectedRule.description}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-800/50 text-[0.7rem] text-slate-400">
+                      <span className="font-mono bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">Category: {selectedRule.logsource.category}</span>
+                      <span className="font-mono bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">Product: {selectedRule.logsource.product}</span>
+                      <span className="font-mono bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">Service: {selectedRule.logsource.service}</span>
+                    </div>
+                  </div>
+
+                  {/* Splunk Block */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl flex flex-col">
+                    <div className="flex justify-between items-center mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🪵</span>
+                        <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Compiled Splunk SPL</span>
+                      </div>
+                      <button 
+                        id="copy-splunk-btn"
+                        onClick={() => handleCopyCommand(splunkQuery, "copy-splunk-btn")}
+                        className="text-[0.7rem] bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/30 text-white font-semibold px-2.5 py-1 rounded transition-all cursor-pointer"
+                      >
+                        Copy Query
+                      </button>
+                    </div>
+                    <pre className="bg-[#05070c] border border-slate-800/80 p-4 rounded-xl text-[0.72rem] font-mono text-cyan-400 overflow-x-auto whitespace-pre-wrap leading-relaxed select-all">
+                      {splunkQuery}
+                    </pre>
+                  </div>
+
+                  {/* KQL Block */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl flex flex-col">
+                    <div className="flex justify-between items-center mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">☁️</span>
+                        <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Compiled Microsoft Sentinel KQL</span>
+                      </div>
+                      <button 
+                        id="copy-kql-btn"
+                        onClick={() => handleCopyCommand(kqlQuery, "copy-kql-btn")}
+                        className="text-[0.7rem] bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/30 text-white font-semibold px-2.5 py-1 rounded transition-all cursor-pointer"
+                      >
+                        Copy Query
+                      </button>
+                    </div>
+                    <pre className="bg-[#05070c] border border-slate-800/80 p-4 rounded-xl text-[0.72rem] font-mono text-purple-300 overflow-x-auto whitespace-pre-wrap leading-relaxed select-all">
+                      {kqlQuery}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            </>
+          );
+        })()}
+
+        {/* Active Tab: SIMULATION LAB */}
+        {activeTab === 'validation' && (() => {
+          const selectedRule = RULES.find(r => r.id === selectedRuleIdValidation) || RULES[0];
+          const dataset = MOCK_TELEMETRY[selectedRule.id] || [];
+          
+          const handleRunValidation = () => {
+            setEmulationRunning(true);
+            setTimeout(() => {
+              const report = runValidation(selectedRule, dataset);
+              setValidationReport(report);
+              setEmulationRunning(false);
+            }, 600);
+          };
+
+          return (
+            <>
+              <header className="border-b border-slate-800/60 pb-5">
+                <h2 className="text-2xl font-bold tracking-tight text-white mb-1 flex items-center gap-2">
+                  🧪 Simulation & Validation Lab
+                </h2>
+                <p className="text-slate-400 text-sm max-w-4xl">
+                  Audit rule logic accuracy. Execute detection rules locally against mock purple team attack datasets to compute Precision, Recall, and Confusion Matrices.
+                </p>
+              </header>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Left Column: Select rule & Launch (Span 4) */}
+                <div className="lg:col-span-4 flex flex-col gap-6">
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl">
+                    <label htmlFor="validation-rule-select" className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-3">
+                      Select Rule to Validate
+                    </label>
+                    <select 
+                      id="validation-rule-select"
+                      value={selectedRuleIdValidation}
+                      onChange={(e) => {
+                        setSelectedRuleIdValidation(e.target.value);
+                        setValidationReport(null); // Reset report when changing rule
+                      }}
+                      className="w-full bg-[#05070c] border border-slate-800 text-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      {RULES.map(r => (
+                        <option key={r.id} value={r.id}>{r.title}</option>
+                      ))}
+                    </select>
+
+                    <div className="mt-5 pt-5 border-t border-slate-800/60 text-xs text-slate-400 flex flex-col gap-3">
+                      <div className="flex justify-between">
+                        <span>Ingested Test Events:</span>
+                        <span className="font-mono text-slate-200">{dataset.length} logs</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Malicious Events:</span>
+                        <span className="font-mono text-rose-400">{dataset.filter(d => d.label === 'malicious').length} logs</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Benign Events:</span>
+                        <span className="font-mono text-emerald-400">{dataset.filter(d => d.label === 'benign').length} logs</span>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={handleRunValidation}
+                      disabled={emulationRunning}
+                      className="mt-6 w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 disabled:opacity-50 text-white font-bold text-xs py-3 rounded-lg transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {emulationRunning ? (
+                        <>
+                          <span className="animate-spin text-sm">⏳</span> Running Simulation...
+                        </>
+                      ) : (
+                        <>
+                          ⚡ Run Emulation Test
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Diagnostics info */}
+                  <div className="bg-[#0f1322]/40 border border-slate-800/60 rounded-2xl p-5 text-xs text-slate-400 leading-relaxed">
+                    <h4 className="font-bold text-slate-200 mb-2 flex items-center gap-1">
+                      <span>ℹ️</span> Validation Methodologies
+                    </h4>
+                    <p className="mb-2">
+                      Our emulation pipeline parses the logic condition fields inside a Sigma rule dynamically and executes them directly against each log entry within the mock dataset.
+                    </p>
+                    <p>
+                      It compares outcomes to the pre-configured ground truth label to calculate false alarms, missed alerts, and total accuracy score ratios.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Right Column: Emulation Results (Span 8) */}
+                <div className="lg:col-span-8 flex flex-col gap-6">
+                  {!validationReport ? (
+                    <div className="bg-[#0d111c]/40 border border-dashed border-slate-800 rounded-2xl p-12 text-center text-slate-500 flex flex-col items-center gap-3 justify-center min-h-[400px]">
+                      <span className="text-4xl">🧪</span>
+                      <p className="text-sm">Select a rule and click "Run Emulation Test" to analyze logic health.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Performance Metrics Row */}
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-[#0f1322]/80 border border-slate-800/60 p-5 rounded-2xl relative overflow-hidden">
+                          <span className="text-[0.62rem] font-bold text-slate-400 uppercase tracking-wider block">Precision Rate</span>
+                          <span className="text-2xl font-bold mt-1 block font-mono text-sky-400">{Math.round(validationReport.precision * 100)}%</span>
+                          <p className="text-[0.62rem] text-slate-500 mt-1">Ratio of real alerts to total triggers.</p>
+                          <div className="absolute bottom-0 left-0 w-full h-[3px] bg-sky-400"></div>
+                        </div>
+                        <div className="bg-[#0f1322]/80 border border-slate-800/60 p-5 rounded-2xl relative overflow-hidden">
+                          <span className="text-[0.62rem] font-bold text-slate-400 uppercase tracking-wider block">Recall Rate</span>
+                          <span className="text-2xl font-bold mt-1 block font-mono text-purple-400">{Math.round(validationReport.recall * 100)}%</span>
+                          <p className="text-[0.62rem] text-slate-500 mt-1">Ratio of captured threats to total threats.</p>
+                          <div className="absolute bottom-0 left-0 w-full h-[3px] bg-purple-400"></div>
+                        </div>
+                        <div className="bg-[#0f1322]/80 border border-slate-800/60 p-5 rounded-2xl relative overflow-hidden">
+                          <span className="text-[0.62rem] font-bold text-slate-400 uppercase tracking-wider block">F1-Score Accuracy</span>
+                          <span className="text-2xl font-bold mt-1 block font-mono text-emerald-400">{Math.round(validationReport.f1_score * 100)}%</span>
+                          <p className="text-[0.62rem] text-slate-500 mt-1">Harmonic mean of precision & recall.</p>
+                          <div className="absolute bottom-0 left-0 w-full h-[3px] bg-emerald-400"></div>
+                        </div>
+                      </div>
+
+                      {/* Confusion Matrix Panel */}
+                      <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6">
+                        <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-4">
+                          Confusion Matrix
+                        </h3>
+                        
+                        <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                          {/* Empty corner */}
+                          <div></div>
+                          <div className="font-bold text-slate-400 pb-1 uppercase tracking-wide">Threat (Label: Malicious)</div>
+                          <div className="font-bold text-slate-400 pb-1 uppercase tracking-wide">Noise (Label: Benign)</div>
+
+                          <div className="font-bold text-slate-400 flex items-center justify-center uppercase tracking-wide">Triggered (Alert)</div>
+                          <div className="bg-emerald-950/20 border border-emerald-500/40 p-4 rounded-xl">
+                            <span className="text-2xl font-mono font-bold text-emerald-400 block">{validationReport.true_positives}</span>
+                            <span className="text-[0.62rem] text-emerald-300 font-semibold">True Positive (TP)</span>
+                          </div>
+                          <div className="bg-rose-950/20 border border-rose-500/40 p-4 rounded-xl">
+                            <span className="text-2xl font-mono font-bold text-rose-400 block">{validationReport.false_positives}</span>
+                            <span className="text-[0.62rem] text-rose-300 font-semibold">False Positive (FP)</span>
+                          </div>
+
+                          <div className="font-bold text-slate-400 flex items-center justify-center uppercase tracking-wide">Ignored (Silence)</div>
+                          <div className="bg-amber-950/20 border border-amber-500/40 p-4 rounded-xl">
+                            <span className="text-2xl font-mono font-bold text-amber-400 block">{validationReport.false_negatives}</span>
+                            <span className="text-[0.62rem] text-amber-300 font-semibold">False Negative (FN)</span>
+                          </div>
+                          <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                            <span className="text-2xl font-mono font-bold text-slate-400 block">{validationReport.true_negatives}</span>
+                            <span className="text-[0.62rem] text-slate-400 font-semibold">True Negative (TN)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Event Logs Trace Output */}
+                      <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6">
+                        <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-4">
+                          Emulation Event Log Trace
+                        </h3>
+                        
+                        <div className="flex flex-col gap-2.5 max-h-[300px] overflow-y-auto pr-1">
+                          {dataset.map((rec, index) => {
+                            const triggered = evaluateRuleAgainstRecord(selectedRule, rec);
+                            const label = rec.label || 'benign';
+                            
+                            let statusText = "True Negative";
+                            let badgeClass = "bg-slate-800 text-slate-400 border border-slate-700/50";
+                            if (triggered && label === 'malicious') {
+                              statusText = "True Positive";
+                              badgeClass = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+                            } else if (triggered && label === 'benign') {
+                              statusText = "False Positive (Noise Alert)";
+                              badgeClass = "bg-rose-500/10 text-rose-400 border border-rose-500/20";
+                            } else if (!triggered && label === 'malicious') {
+                              statusText = "False Negative (Missed Threat)";
+                              badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                            }
+
+                            return (
+                              <div key={index} className="bg-[#05070c]/60 border border-slate-800/60 p-3 rounded-lg flex flex-col sm:flex-row justify-between gap-3 text-xs">
+                                <div className="flex flex-col gap-1 min-w-0">
+                                  <span className="font-mono text-slate-300 truncate">
+                                    {JSON.stringify(rec)}
+                                  </span>
+                                  <span className="text-[0.62rem] text-slate-500">
+                                    Ground Truth: <span className={label === 'malicious' ? 'text-rose-400' : 'text-emerald-400'}>{label.toUpperCase()}</span>
+                                  </span>
+                                </div>
+                                <div className="shrink-0 self-end sm:self-center">
+                                  <span className={`px-2 py-0.5 rounded text-[0.62rem] font-bold ${badgeClass}`}>
+                                    {statusText}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          );
+        })()}
+
+        {/* Active Tab: TELEMETRY HEALTH AUDITOR */}
+        {activeTab === 'telemetry_audit' && (() => {
+          const handleRunAudit = () => {
+            try {
+              const parsed = JSON.parse(auditJsonInput);
+              const report = analyzeLogQuality(selectedSourceType, parsed);
+              setAuditReport(report);
+            } catch (e: any) {
+              alert(`Invalid JSON: ${e.message}`);
+            }
+          };
+
+          return (
+            <>
+              <header className="border-b border-slate-800/60 pb-5">
+                <h2 className="text-2xl font-bold tracking-tight text-white mb-1 flex items-center gap-2">
+                  📊 Telemetry Health Auditor
+                </h2>
+                <p className="text-slate-400 text-sm max-w-4xl">
+                  Evaluate your log source health schema against security engineering requirements. Identify missing telemetry fields that break threat hunting queries and alerts.
+                </p>
+              </header>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Left Column: Input Payload Editor (Span 5) */}
+                <div className="lg:col-span-5 flex flex-col gap-6">
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl">
+                    <label htmlFor="auditor-source-select" className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-3">
+                      Select Log Source Type
+                    </label>
+                    <select 
+                      id="auditor-source-select"
+                      value={selectedSourceType}
+                      onChange={(e) => setSelectedSourceType(e.target.value)}
+                      className="w-full bg-[#05070c] border border-slate-800 text-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value="sysmon">Windows Sysmon Process Event</option>
+                      <option value="active_directory">Active Directory Security Log</option>
+                      <option value="azure_entra">Entra ID (Azure AD) Audit Logs</option>
+                      <option value="aws">AWS CloudTrail Log</option>
+                      <option value="dns">DNS Query Resolver Log</option>
+                    </select>
+                  </div>
+
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 flex-1 flex flex-col backdrop-blur-xl">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Raw Log JSON payload</span>
+                      <button 
+                        onClick={() => {
+                          const sourceToRuleMap: Record<string, string> = {
+                            sysmon: "5b4e13d9-9fb2-47de-9852-ff14b9c1d3c5",
+                            active_directory: "c46f772e-d00f-48d6-953e-52ebc2b7ab7f",
+                            azure_entra: "e4617a22-38e2-411a-8bb7-09d57a9e0f6b",
+                            aws: "a24d8b99-a411-4824-9b2d-cf211a7a13fb",
+                            dns: "d8d74542-a8b2-4d26-bb21-1d361c47a544"
+                          };
+                          const defaultRuleId = sourceToRuleMap[selectedSourceType];
+                          const defaultLog = MOCK_TELEMETRY[defaultRuleId]?.[0] || {};
+                          const { label, ...cleanLog } = defaultLog;
+                          setAuditJsonInput(JSON.stringify(cleanLog, null, 2));
+                          setAuditReport(null);
+                        }}
+                        className="text-[0.66rem] text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer"
+                      >
+                        Reset to Default
+                      </button>
+                    </div>
+                    
+                    <textarea 
+                      id="auditor-json-input"
+                      value={auditJsonInput}
+                      onChange={(e) => setAuditJsonInput(e.target.value)}
+                      className="w-full flex-1 min-h-[300px] bg-[#05070c] border border-slate-800/80 rounded-xl p-4 text-cyan-400 font-mono text-[0.72rem] focus:outline-none focus:border-indigo-500 resize-none leading-relaxed"
+                    />
+
+                    <button 
+                      onClick={handleRunAudit}
+                      className="mt-4 w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white font-bold text-xs py-3 rounded-lg transition-all shadow-lg shadow-indigo-500/20 cursor-pointer"
+                    >
+                      ⚡ Audit Telemetry Payload
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right Column: Audit Score & Feedback (Span 7) */}
+                <div className="lg:col-span-7 flex flex-col gap-6">
+                  {!auditReport ? (
+                    <div className="bg-[#0d111c]/40 border border-dashed border-slate-800 rounded-2xl p-12 text-center text-slate-500 flex flex-col items-center gap-3 justify-center min-h-[400px]">
+                      <span className="text-4xl">📊</span>
+                      <p className="text-sm">Provide a JSON log payload and click "Audit" to run the gap parser.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Score Gauge */}
+                      <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl">
+                        <div className="flex justify-between items-center mb-4">
+                          <div>
+                            <h3 className="font-bold text-white text-base">{auditReport.log_source_name}</h3>
+                            <span className="text-xs text-slate-500">Schema conformance checklist</span>
+                          </div>
+                          <div className="text-right">
+                            <span className={`text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${auditReport.status === 'HEALTHY' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : auditReport.status === 'WARNING' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                              {auditReport.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <div className="w-full bg-[#05070c] rounded-full h-3 border border-slate-800">
+                            <div 
+                              className={`h-2.5 rounded-full ${auditReport.health_score >= 80 ? 'bg-emerald-500' : auditReport.health_score >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`} 
+                              style={{ width: `${auditReport.health_score}%` }}
+                            />
+                          </div>
+                          <span className="text-lg font-mono font-bold text-white shrink-0">{auditReport.health_score}%</span>
+                        </div>
+                      </div>
+
+                      {/* Conformance Table */}
+                      <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl">
+                        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-4">
+                          Telemetry Checklist Analysis
+                        </h3>
+                        
+                        <div className="flex flex-col gap-3">
+                          {auditReport.checked_fields.map((f: any) => (
+                            <div key={f.field} className="bg-[#05070c]/50 border border-slate-800/60 p-3.5 rounded-xl flex items-start sm:items-center justify-between gap-4 text-xs">
+                              <div className="flex flex-col gap-1 min-w-0">
+                                <span className="font-bold text-slate-200 font-mono text-[0.74rem] flex items-center gap-1.5">
+                                  {f.field}
+                                  <span className={`text-[0.62rem] px-1.5 py-0.2 rounded border ${f.status === 'Present' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                                    {f.status}
+                                  </span>
+                                </span>
+                                <span className="text-[0.68rem] text-slate-400 leading-normal">{f.description}</span>
+                                {f.status === 'Present' && (
+                                  <span className="text-[0.68rem] text-cyan-400 font-mono mt-1 block truncate">
+                                    Value: <span className="bg-black/30 px-1 py-0.5 rounded border border-slate-800/60">{f.value}</span>
+                                  </span>
+                                )}
+                              </div>
+                              <div className="shrink-0">
+                                {f.status === 'Present' ? (
+                                  <span className="text-emerald-400 text-lg">✅</span>
+                                ) : (
+                                  <span className="text-rose-400 text-lg">❌</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Remediation & Diagnostics */}
+                      {auditReport.missing_fields.length > 0 && (
+                        <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl flex flex-col gap-4">
+                          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                            🛠️ Remediation & Diagnostic Guides
+                          </h3>
+
+                          <p className="text-xs text-slate-400 leading-normal">
+                            To capture the missing fields (<span className="font-mono text-rose-300">{auditReport.missing_fields.join(', ')}</span>), apply the following configurations in your environment:
+                          </p>
+
+                          <div className="bg-[#05070c]/60 border border-slate-800/50 p-4 rounded-xl flex flex-col gap-2">
+                            <span className="text-xs font-bold text-indigo-300">🖥️ Group Policy / Diagnostic Setting</span>
+                            <p className="text-xs text-slate-300 leading-relaxed">{auditReport.gpo_remediation}</p>
+                          </div>
+
+                          {auditReport.sysmon_remediation && (
+                            <div className="bg-[#05070c]/60 border border-slate-800/50 p-4 rounded-xl flex flex-col gap-2">
+                              <span className="text-xs font-bold text-purple-300">⚙️ Sysmon Config Template Required</span>
+                              <p className="text-xs text-slate-300 leading-relaxed">{auditReport.sysmon_remediation}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          );
+        })()}
+
+        {/* Active Tab: IR FAST SCOPER */}
+        {activeTab === 'ir_scoper' && (() => {
+          const handleGenerateScoping = () => {
+            const parseTokens = (txt: string) => txt.split(/[\n,]+/).map(t => t.trim()).filter(t => t !== "");
+            const hosts = parseTokens(scoperHosts);
+            const ips = parseTokens(scoperIps);
+            const users = parseTokens(scoperUsers);
+            const hashes = parseTokens(scoperHashes);
+            
+            const queries = generateScopingQueries(hosts, ips, users, hashes);
+            setScoperQueries(queries);
+          };
+
+          const handleClearScoper = () => {
+            setScoperHosts("");
+            setScoperIps("");
+            setScoperUsers("");
+            setScoperHashes("");
+            setScoperQueries(null);
+          };
+
+          return (
+            <>
+              <header className="border-b border-slate-800/60 pb-5">
+                <h2 className="text-2xl font-bold tracking-tight text-white mb-1 flex items-center gap-2">
+                  🚨 Incident Response Fast Scoper
+                </h2>
+                <p className="text-slate-400 text-sm max-w-4xl">
+                  Instantly transform lists of Indicators of Compromise (IOCs) into optimized SIEM queries to verify host, network, credential, and process footprinting in seconds.
+                </p>
+              </header>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Left Column: Inputs Form (Span 4) */}
+                <div className="lg:col-span-4 flex flex-col gap-6">
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl flex flex-col gap-4">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block border-b border-slate-800/50 pb-2">
+                      Input Indicators of Compromise
+                    </span>
+
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="scoper-hosts" className="text-[0.7rem] font-bold text-slate-400 uppercase tracking-wider">Hosts (Target Names)</label>
+                      <textarea 
+                        id="scoper-hosts"
+                        placeholder="e.g. WS-PROD-SRV01, DC-01"
+                        value={scoperHosts}
+                        onChange={(e) => setScoperHosts(e.target.value)}
+                        className="bg-[#05070c] border border-slate-800 rounded-lg p-2 text-xs font-mono text-cyan-400 focus:outline-none focus:border-indigo-500 h-16 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="scoper-ips" className="text-[0.7rem] font-bold text-slate-400 uppercase tracking-wider">IP Addresses</label>
+                      <textarea 
+                        id="scoper-ips"
+                        placeholder="e.g. 10.0.2.15, 192.168.10.45"
+                        value={scoperIps}
+                        onChange={(e) => setScoperIps(e.target.value)}
+                        className="bg-[#05070c] border border-slate-800 rounded-lg p-2 text-xs font-mono text-cyan-400 focus:outline-none focus:border-indigo-500 h-16 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="scoper-users" className="text-[0.7rem] font-bold text-slate-400 uppercase tracking-wider">Usernames</label>
+                      <textarea 
+                        id="scoper-users"
+                        placeholder="e.g. john.doe, administrator"
+                        value={scoperUsers}
+                        onChange={(e) => setScoperUsers(e.target.value)}
+                        className="bg-[#05070c] border border-slate-800 rounded-lg p-2 text-xs font-mono text-cyan-400 focus:outline-none focus:border-indigo-500 h-16 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="scoper-hashes" className="text-[0.7rem] font-bold text-slate-400 uppercase tracking-wider">Process Hashes (SHA256)</label>
+                      <textarea 
+                        id="scoper-hashes"
+                        placeholder="e.g. e2c39d82fb10a459b9cd837de..."
+                        value={scoperHashes}
+                        onChange={(e) => setScoperHashes(e.target.value)}
+                        className="bg-[#05070c] border border-slate-800 rounded-lg p-2 text-xs font-mono text-cyan-400 focus:outline-none focus:border-indigo-500 h-16 resize-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                      <button 
+                        onClick={handleClearScoper}
+                        className="bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 font-bold text-xs py-2.5 rounded-lg transition-all cursor-pointer text-center"
+                      >
+                        Clear All
+                      </button>
+                      <button 
+                        onClick={handleGenerateScoping}
+                        className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white font-bold text-xs py-2.5 rounded-lg transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
+                      >
+                        Generate Query
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: Output Queries (Span 8) */}
+                <div className="lg:col-span-8 flex flex-col gap-6">
+                  {!scoperQueries ? (
+                    <div className="bg-[#0d111c]/40 border border-dashed border-slate-800 rounded-2xl p-12 text-center text-slate-500 flex flex-col items-center gap-3 justify-center min-h-[400px]">
+                      <span className="text-4xl">🚨</span>
+                      <p className="text-sm">Input at least one IOC and click "Generate Query" to build optimized incident scoper scripts.</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Splunk Scoping Card */}
+                      <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl flex flex-col">
+                        <div className="flex justify-between items-center mb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">🪵</span>
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Splunk SPL Scoping Script</span>
+                          </div>
+                          <button 
+                            id="copy-scoper-splunk"
+                            onClick={() => handleCopyCommand(scoperQueries.splunk, "copy-scoper-splunk")}
+                            className="text-[0.7rem] bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/30 text-white font-semibold px-2.5 py-1 rounded transition-all cursor-pointer"
+                          >
+                            Copy Query
+                          </button>
+                        </div>
+                        <pre className="bg-[#05070c] border border-slate-800/80 p-4 rounded-xl text-[0.72rem] font-mono text-cyan-400 overflow-x-auto whitespace-pre-wrap leading-relaxed select-all">
+                          {scoperQueries.splunk}
+                        </pre>
+                      </div>
+
+                      {/* KQL Scoping Card */}
+                      <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl flex flex-col">
+                        <div className="flex justify-between items-center mb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">☁️</span>
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Sentinel KQL Scoping Script</span>
+                          </div>
+                          <button 
+                            id="copy-scoper-kql"
+                            onClick={() => handleCopyCommand(scoperQueries.kql, "copy-scoper-kql")}
+                            className="text-[0.7rem] bg-indigo-600 hover:bg-indigo-500 border border-indigo-500/30 text-white font-semibold px-2.5 py-1 rounded transition-all cursor-pointer"
+                          >
+                            Copy Query
+                          </button>
+                        </div>
+                        <pre className="bg-[#05070c] border border-slate-800/80 p-4 rounded-xl text-[0.72rem] font-mono text-purple-300 overflow-x-auto whitespace-pre-wrap leading-relaxed select-all">
+                          {scoperQueries.kql}
+                        </pre>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          );
+        })()}
 
         {/* Active Tab: RULES DATABASE (Tab 2) */}
         {activeTab === 'detections' && (
