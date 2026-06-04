@@ -490,6 +490,22 @@ export default function Home() {
               <span className="text-[0.68rem] text-slate-500">5 events • Entra MFA Bypass</span>
             </button>
 
+            <button 
+              onClick={() => setActiveCampaignId('active_directory_escalation')}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex flex-col gap-0.5 border ${activeCampaignId === 'active_directory_escalation' ? 'bg-indigo-950/20 border-indigo-500/30 text-slate-100 shadow-lg shadow-indigo-500/5' : 'border-transparent text-slate-400 hover:bg-slate-800/30'}`}
+            >
+              <span className="text-[0.85rem] font-semibold">AD Domain Escalation</span>
+              <span className="text-[0.68rem] text-slate-500">5 events • Kerberoast & DCSync</span>
+            </button>
+
+            <button 
+              onClick={() => setActiveCampaignId('dns_tunneling_c2')}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex flex-col gap-0.5 border ${activeCampaignId === 'dns_tunneling_c2' ? 'bg-indigo-950/20 border-indigo-500/30 text-slate-100 shadow-lg shadow-indigo-500/5' : 'border-transparent text-slate-400 hover:bg-slate-800/30'}`}
+            >
+              <span className="text-[0.85rem] font-semibold">DNS Tunneling & C2</span>
+              <span className="text-[0.68rem] text-slate-500">4 events • CNAME/TXT Exfil</span>
+            </button>
+
             {customCampaign && (
               <button 
                 onClick={() => setActiveCampaignId('custom')}
