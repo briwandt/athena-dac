@@ -679,7 +679,7 @@ function compileValue(field: string, value: any, targetSiem: 'splunk' | 'kql'): 
     if (targetSiem === 'splunk') {
       return `${field}="${valStr}"`;
     } else {
-      if (valStr.startsWith('*') && valStr.endswith('*')) {
+      if (valStr.startsWith('*') && valStr.endsWith('*')) {
         return `${field} contains "${valStr.slice(1, -1)}"`;
       } else if (valStr.startsWith('*')) {
         return `${field} endswith "${valStr.slice(1)}"`;
