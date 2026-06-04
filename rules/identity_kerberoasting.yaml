@@ -1,0 +1,31 @@
+id: c46f772e-d00f-48d6-953e-52ebc2b7ab7f
+title: Active Directory Kerberoasting via Ticket Requests
+description: Detects Kerberos Service Ticket requests (Event ID 4769) requesting weak RC4 (0x17) encryption. This is typical of Kerberoasting, where attackers request tickets for service accounts in order to crack their passwords offline.
+status: production
+severity: high
+author: Specialist Detection Engineer Candidate
+date: 2026-06-03
+tags:
+  - attack.credential_access
+  - attack.t1558.003
+logsource:
+  category: identity
+  product: active_directory
+  service: security
+detection:
+  selection:
+    EventID: 4769
+    TicketEncryptionType: '0x17'
+  filter_computers:
+    ServiceName: '*$'
+  filter_krbtgt:
+    ServiceName: 'krbtgt'
+  condition: selection and not (filter_computers or filter_krbtgt)
+false_positives:
+  - Legacy applications that do not support AES encryption for service tickets.
+  - Misconfigured internal service accounts.
+remediation:
+  - Identify the user account that requested the ticket (TargetUserName).
+  - Check the source IP address (IpAddress) for other anomalous activity.
+  - Migrate the target Service account to use AES256 encryption.
+  - Rotate the password of the targeted service account.

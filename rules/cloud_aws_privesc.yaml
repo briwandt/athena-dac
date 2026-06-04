@@ -1,0 +1,32 @@
+id: a24d8b99-a411-4824-9b2d-cf211a7a13fb
+title: AWS IAM Access Key Created for Persistence
+description: Detects when a new IAM Access Key is created in AWS. Attackers often generate access keys for compromised accounts to establish long-term programmatic persistence.
+status: production
+severity: medium
+author: Specialist Detection Engineer Candidate
+date: 2026-06-03
+tags:
+  - attack.persistence
+  - attack.t1098
+  - attack.t1136.003
+logsource:
+  category: cloud
+  product: aws
+  service: cloudtrail
+detection:
+  selection:
+    eventSource: 'iam.amazonaws.com'
+    eventName: 'CreateAccessKey'
+  filter_terraform:
+    userIdentity.arn: 'arn:aws:iam::*:role/TerraformDeploymentRole'
+  filter_okta_sso:
+    userIdentity.sessionContext.sessionIssuer.userName: 'OktaSSO-*'
+  condition: selection and not (filter_terraform or filter_okta_sso)
+false_positives:
+  - Legitimate developers generating keys for local development (should be restricted by policy).
+  - Automated deployment scripts executing with admin privileges.
+remediation:
+  - Contact the user identified in the `responseElements.accessKey.userName` field to verify authorization.
+  - Disable or delete the newly created access key immediately.
+  - Check the user identity that called the API (caller) for other anomalous APIs.
+  - Enforce IAM policy that mandates AWS IAM Identity Center (SSO) instead of static access keys.

@@ -1,0 +1,36 @@
+id: d8d74542-a8b2-4d26-bb21-1d361c47a544
+title: Suspicious DNS Tunneling Query Activity
+description: Detects network systems making DNS queries with abnormally long query strings (length > 80 characters), which is characteristic of DNS tunneling techniques (e.g., Iodine, DNScat2) used for command and control or data exfiltration.
+status: test
+severity: high
+author: Specialist Detection Engineer Candidate
+date: 2026-06-03
+tags:
+  - attack.command_and_control
+  - attack.t1071.004
+  - attack.exfiltration
+  - attack.t1048.003
+logsource:
+  category: network
+  product: dns
+  service: queries
+detection:
+  selection:
+    query_length: '> 80'
+    query_type:
+      - 'TXT'
+      - 'CNAME'
+      - 'A'
+  filter_common:
+    query:
+      - '*.akamaiedge.net'
+      - '*.cloudfront.net'
+  condition: selection and not filter_common
+false_positives:
+  - Complex content delivery networks (CDNs) or security agents checking reputations.
+  - Development domains that use long hash-based subdomains.
+remediation:
+  - Identify the source IP making the request.
+  - Analyze the destination domain's creation date and reputation.
+  - Review network traffic from the source IP to see if external C2 channels are active.
+  - Block the destination domain at the DNS firewall / resolver level.

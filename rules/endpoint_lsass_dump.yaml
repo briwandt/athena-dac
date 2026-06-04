@@ -1,0 +1,35 @@
+id: 5b4e13d9-9fb2-47de-9852-ff14b9c1d3c5
+title: LSASS Process Access for Credential Dumping
+description: Detects suspicious process access requests targeting the Local Security Authority Subsystem Service (LSASS), which is a common precursor to credential theft (e.g., Mimikatz, Procdump, comsvcs.dll).
+status: production
+severity: critical
+author: Specialist Detection Engineer Candidate
+date: 2026-06-03
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: endpoint
+  product: windows
+  service: sysmon
+detection:
+  selection:
+    EventID: 10
+    TargetImage: 'C:\Windows\System32\lsass.exe'
+    GrantedAccess:
+      - '0x1010'
+      - '0x1410'
+      - '0x1F1F'
+  filter_defender:
+    SourceImage: 'C:\Program Files\Windows Defender\MsMpEng.exe'
+  filter_system:
+    SourceImage: 'C:\Windows\System32\svchost.exe'
+  condition: selection and not (filter_defender or filter_system)
+false_positives:
+  - Antivirus and EDR agents scanning memory.
+  - Security configuration management agents or backup agents.
+remediation:
+  - Isolate the source host immediately.
+  - Inspect the SourceImage file signature and location.
+  - Determine if a memory dump file (.dmp) was written to disk or exfiltrated.
+  - Reset credentials for any high-privilege users logged into the system.

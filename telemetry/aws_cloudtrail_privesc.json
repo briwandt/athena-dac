@@ -1,0 +1,56 @@
+[
+  {
+    "eventSource": "iam.amazonaws.com",
+    "eventName": "CreateAccessKey",
+    "userIdentity": {
+      "arn": "arn:aws:iam::123456789012:role/TerraformDeploymentRole"
+    },
+    "requestParameters": {
+      "userName": "app-runner-service"
+    },
+    "userAgent": "HashiCorp/1.0.0 (Terraform)",
+    "label": "benign"
+  },
+  {
+    "eventSource": "iam.amazonaws.com",
+    "eventName": "CreateAccessKey",
+    "userIdentity": {
+      "arn": "arn:aws:iam::123456789012:assumed-role/OktaSSO-Developer/dev-session",
+      "sessionContext": {
+        "sessionIssuer": {
+          "userName": "OktaSSO-Developer"
+        }
+      }
+    },
+    "requestParameters": {
+      "userName": "dev-user-key"
+    },
+    "userAgent": "aws-cli/2.15.0 Python/3.11.5 Windows/10",
+    "label": "benign"
+  },
+  {
+    "eventSource": "iam.amazonaws.com",
+    "eventName": "CreateAccessKey",
+    "userIdentity": {
+      "arn": "arn:aws:iam::123456789012:user/backdoor-test",
+      "sessionContext": null
+    },
+    "requestParameters": {
+      "userName": "backdoor-test"
+    },
+    "userAgent": "aws-sdk-go/1.44.20",
+    "label": "malicious"
+  },
+  {
+    "eventSource": "s3.amazonaws.com",
+    "eventName": "PutObject",
+    "userIdentity": {
+      "arn": "arn:aws:iam::123456789012:user/backdoor-test"
+    },
+    "requestParameters": {
+      "bucketName": "sensitive-data-prudential-mock"
+    },
+    "userAgent": "aws-cli/2.15.0",
+    "label": "benign"
+  }
+]

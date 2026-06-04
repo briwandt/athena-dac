@@ -1,0 +1,38 @@
+id: e4617a22-38e2-411a-8bb7-09d57a9e0f6b
+title: OAuth Consent Grant to Malicious Application
+description: Detects when a user or administrator grants consent to an external OAuth application requesting high-privilege permissions (e.g., Mail.Read, Directory.ReadWrite.All), which could indicate a malicious consent phish.
+status: production
+severity: high
+author: Specialist Detection Engineer Candidate
+date: 2026-06-03
+tags:
+  - attack.credential_access
+  - attack.t1528
+  - attack.persistence
+  - attack.t1098.003
+logsource:
+  category: cloud
+  product: azure_entra
+  service: auditlogs
+detection:
+  selection:
+    OperationName:
+      - 'Consent to application'
+      - 'Add OAuth2PermissionGrant'
+    ConsentType: 'AllPrincipals'
+  selection_permissions:
+    Permissions:
+      - '*Mail.Read*'
+      - '*Mail.Write*'
+      - '*Directory.ReadWrite.All*'
+      - '*Directory.AccessAsUser.All*'
+      - '*RoleManagement.ReadWrite.Directory*'
+  condition: selection and selection_permissions
+false_positives:
+  - Authorized enterprise applications integrated by IT administrators.
+  - Development tools approved for developer testing.
+remediation:
+  - Identify the target user and the application client ID.
+  - Review the application registration details (publisher, redirect URIs).
+  - Revoke the OAuth consent grant in Entra ID.
+  - Review mail forwarding rules or sign-in logs for the affected user.

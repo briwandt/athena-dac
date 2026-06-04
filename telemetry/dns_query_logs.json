@@ -1,0 +1,42 @@
+[
+  {
+    "query": "www.google.com",
+    "query_type": "A",
+    "query_length": 14,
+    "src_ip": "192.168.1.105",
+    "reply_code": "NOERROR",
+    "label": "benign"
+  },
+  {
+    "query": "super-long-content-delivery-cdn-endpoint-hash-123456789abcdef.akamaiedge.net",
+    "query_type": "CNAME",
+    "query_length": 86,
+    "src_ip": "192.168.1.105",
+    "reply_code": "NOERROR",
+    "label": "benign"
+  },
+  {
+    "query": "e2c39d82fb10a459b9cd837de821c9d8a3be019cd82fab409cd83a09e.attacker-domain.com",
+    "query_type": "TXT",
+    "query_length": 90,
+    "src_ip": "10.0.5.21",
+    "reply_code": "NOERROR",
+    "label": "malicious"
+  },
+  {
+    "query": "beacon-ping-v1-seq021-cmd-execute-shell-session-keepalive.attacker-domain.com",
+    "query_type": "CNAME",
+    "query_length": 88,
+    "src_ip": "10.0.5.21",
+    "reply_code": "NOERROR",
+    "label": "malicious"
+  },
+  {
+    "query": "client.updater.malicious-domain-short.com",
+    "query_type": "A",
+    "query_length": 41,
+    "src_ip": "10.0.5.21",
+    "reply_code": "NXDOMAIN",
+    "label": "benign"
+  }
+]
