@@ -1,0 +1,20 @@
+name: Keep App Awake
+
+on:
+  schedule:
+    # Runs at minute 0 of every 6th hour (4 times a day)
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allows you to manually trigger the ping from the GitHub Actions tab
+
+jobs:
+  ping-app:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send keep-alive ping to Streamlit
+        run: |
+          echo "Pinging Streamlit App to keep it awake..."
+          status_code=$(curl -s -o /dev/null -w "%{http_code}" "https://athena-dac-nrqttd7kmtiepdt5yraqma.streamlit.app/")
+          echo "Response code: $status_code"
+          
+          # Optional: Ping Vercel URL if you deploy there as well
+          # curl -s -o /dev/null -w "%{http_code}" "https://YOUR_VERCEL_URL.vercel.app/"
