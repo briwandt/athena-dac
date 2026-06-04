@@ -48,7 +48,7 @@
       "arn": "arn:aws:iam::123456789012:user/backdoor-test"
     },
     "requestParameters": {
-      "bucketName": "sensitive-data-prudential-mock"
+      "bucketName": "sensitive-data-enterprise-mock"
     },
     "userAgent": "aws-cli/2.15.0",
     "label": "benign"

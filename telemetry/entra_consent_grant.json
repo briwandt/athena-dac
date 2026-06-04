@@ -3,7 +3,7 @@
     "OperationName": "Consent to application",
     "ConsentType": "Principal",
     "Result": "success",
-    "InitiatedBy": "user.smith@prudential-mock.com",
+    "InitiatedBy": "user.smith@enterprise-mock.com",
     "TargetResources": "Office365 Calendar Sync App",
     "Permissions": "Mail.Read, Calendars.Read",
     "label": "benign"
@@ -12,7 +12,7 @@
     "OperationName": "Consent to application",
     "ConsentType": "AllPrincipals",
     "Result": "success",
-    "InitiatedBy": "admin.jones@prudential-mock.com",
+    "InitiatedBy": "admin.jones@enterprise-mock.com",
     "TargetResources": "Zoom Integration",
     "Permissions": "User.Read, Calendars.Read.Shared, openid",
     "label": "benign"
@@ -21,7 +21,7 @@
     "OperationName": "Consent to application",
     "ConsentType": "AllPrincipals",
     "Result": "success",
-    "InitiatedBy": "admin.jones@prudential-mock.com",
+    "InitiatedBy": "admin.jones@enterprise-mock.com",
     "TargetResources": "eDiscovery Exporter",
     "Permissions": "Mail.ReadWrite, User.Read.All, Offline_Access",
     "label": "malicious"
@@ -30,7 +30,7 @@
     "OperationName": "Add OAuth2PermissionGrant",
     "ConsentType": "AllPrincipals",
     "Result": "success",
-    "InitiatedBy": "compromised.admin@prudential-mock.com",
+    "InitiatedBy": "compromised.admin@enterprise-mock.com",
     "TargetResources": "SpamFilterEnhancerPro",
     "Permissions": "Directory.ReadWrite.All, Directory.AccessAsUser.All",
     "label": "malicious"
@@ -39,7 +39,7 @@
     "OperationName": "Update application",
     "ConsentType": "AllPrincipals",
     "Result": "success",
-    "InitiatedBy": "admin.jones@prudential-mock.com",
+    "InitiatedBy": "admin.jones@enterprise-mock.com",
     "TargetResources": "Internal Dashboard",
     "Permissions": "User.Read",
     "label": "benign"

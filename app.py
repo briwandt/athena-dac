@@ -183,10 +183,10 @@ with st.sidebar:
     
     st.divider()
     st.markdown("""
-    **Prudential Specialist Interview**
-    - Technical Demo
-    - Focus: SPL, KQL, DaC, Simulation
-    - Candidate: Cyber Detection Engineer
+    **Threat Detection Lab**
+    - Platform-Independent Logic
+    - Dynamic Simulation Tuning
+    - Telemetry Quality Auditing
     """)
 
 # ----------------- 🏠 EXECUTIVE DASHBOARD -----------------
@@ -355,7 +355,7 @@ dispatch.latest_time = now
 cron_schedule = */5 * * * *
 enableSched = 1
 action.email = 1
-action.email.to = soc-tier1-alerts@prudential-mock.com
+action.email.to = soc-tier1-alerts@enterprise-mock.com
 severity = {selected_rule['severity']}
 description = {selected_rule['description']}"""
                     st.code(splunk_conf, language='ini')

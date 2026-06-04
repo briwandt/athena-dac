@@ -2,7 +2,7 @@
 
 🛡️ **Project Athena** is a complete, enterprise-grade **Detection-as-Code (DaC) & Validation Framework** built specifically to address the modern challenges of engineering and operationalizing threat detection rules across on-premises and cloud infrastructures.
 
-This repository serves as a technical showcase for the **Specialist, Cyber Detection Engineer** role at Prudential, demonstrating proficiency in platform-independent detection design (Sigma schema), translation compilers (Splunk SPL and Sentinel KQL), automated purple-team validation testing, log stream telemetry auditing, and rapid incident scoping query generation.
+This repository serves as a technical showcase for an enterprise threat detection engineering environment, demonstrating proficiency in platform-independent detection design (Sigma schema), translation compilers (Splunk SPL and Sentinel KQL), automated purple-team validation testing, log stream telemetry auditing, and rapid incident scoping query generation.
 
 ---
 
@@ -76,7 +76,7 @@ pip install -r requirements.txt
 ```bash
 streamlit run app.py
 ```
-*The dashboard will run locally at `http://localhost:8501`. A public HTTPS tunnel is currently active at [https://e5162063211714.lhr.life](https://e5162063211714.lhr.life).*
+*The dashboard will run locally at `http://localhost:8501`. A public HTTPS tunnel is currently active at [https://inherited-genetic-flu-disposal.trycloudflare.com](https://inherited-genetic-flu-disposal.trycloudflare.com).*
 
 ---
 
