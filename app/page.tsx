@@ -206,6 +206,9 @@ export default function Home() {
     error: null
   });
 
+  // Rules Database Tab Expansion State
+  const [expandedRuleIds, setExpandedRuleIds] = useState<Set<string>>(new Set());
+
   // Sync sample JSON to editor when source type changes
   useEffect(() => {
     const sourceToRuleMap: Record<string, string> = {
@@ -1737,51 +1740,270 @@ export default function Home() {
 
         {/* Active Tab: RULES DATABASE (Tab 2) */}
         {activeTab === 'detections' && (
-          <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6">
-            <header className="border-b border-slate-800/60 pb-5 mb-6">
-              <h2 className="text-xl font-bold text-white mb-1">
-                🔍 Security Detections Database
-              </h2>
-              <p className="text-slate-400 text-xs">
-                Browse our registry of active detection rules ingested into the SIEM and their required telemetry components.
-              </p>
-            </header>
+          <div className="flex flex-col gap-8">
+            {/* Section 1: Custom Athena DaC Rules Registry */}
+            <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6">
+              <header className="border-b border-slate-800/60 pb-5 mb-6">
+                <h2 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+                  🛡️ Active Project Athena Rules Registry
+                </h2>
+                <p className="text-slate-400 text-xs">
+                  Inspect the production-grade threat detection rules we engineered. Click a rule row to inspect its raw Sigma YAML spec and live SIEM query compilation pipelines.
+                </p>
+              </header>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="text-slate-400 border-b border-slate-800 text-[0.7rem] uppercase tracking-wider font-semibold">
-                    <th className="py-3 px-4">Rule Name</th>
-                    <th className="py-3 px-4">Platform</th>
-                    <th className="py-3 px-4">Language</th>
-                    <th className="py-3 px-4">ATT&CK Mapping</th>
-                    <th className="py-3 px-4">Required Telemetry</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {elasticDetections.map((rule) => (
-                    <tr key={rule.rule_name} className="border-b border-slate-800/60 hover:bg-slate-800/10 transition-colors">
-                      <td className="py-4 px-4 font-semibold text-slate-100">{rule.rule_name}</td>
-                      <td className="py-4 px-4 text-slate-300">{rule.platform}</td>
-                      <td className="py-4 px-4 text-slate-400 font-mono">{rule.query_language}</td>
-                      <td className="py-4 px-4">
-                        <span className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-2 py-0.5 rounded font-mono text-[0.68rem] font-semibold">
-                          {rule.mapped_technique}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex flex-wrap gap-1.5">
-                          {rule.required_telemetry.map((telemetry) => (
-                            <span key={telemetry} className="bg-slate-800 text-slate-300 px-2 py-0.5 rounded text-[0.66rem] border border-slate-700/50">
-                              {telemetry}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-slate-800 text-[0.7rem] uppercase tracking-wider font-semibold">
+                      <th className="py-3 px-4 w-[40px]"></th>
+                      <th className="py-3 px-4">Rule Name</th>
+                      <th className="py-3 px-4">Severity</th>
+                      <th className="py-3 px-4">Category</th>
+                      <th className="py-3 px-4">Log Source</th>
+                      <th className="py-3 px-4">ATT&CK Tags</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {RULES.map((rule) => {
+                      const isExpanded = expandedRuleIds.has(rule.id);
+                      const toggleExpand = () => {
+                        const next = new Set(expandedRuleIds);
+                        if (next.has(rule.id)) {
+                          next.delete(rule.id);
+                        } else {
+                          next.add(rule.id);
+                        }
+                        setExpandedRuleIds(next);
+                      };
+
+                      const attackTags = rule.tags.filter(t => t.startsWith('attack.'));
+
+                      return (
+                        <>
+                          <tr 
+                            key={rule.id} 
+                            onClick={toggleExpand}
+                            className="border-b border-slate-800/60 hover:bg-slate-800/10 transition-colors cursor-pointer select-none"
+                          >
+                            <td className="py-4 px-4 text-center text-slate-500 text-xs">
+                              {isExpanded ? "▼" : "▶"}
+                            </td>
+                            <td className="py-4 px-4 font-semibold text-slate-100">{rule.title}</td>
+                            <td className="py-4 px-4">
+                              <span className={`text-[0.62rem] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                                rule.severity === 'critical' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 
+                                rule.severity === 'high' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
+                                'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                              }`}>
+                                {rule.severity}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-slate-300 capitalize">{rule.logsource.category}</td>
+                            <td className="py-4 px-4 font-mono text-[0.7rem] text-slate-400">
+                              {rule.logsource.product}:{rule.logsource.service}
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="flex flex-wrap gap-1">
+                                {attackTags.map(tag => (
+                                  <span key={tag} className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-2 py-0.5 rounded font-mono text-[0.64rem] font-semibold">
+                                    {tag.replace('attack.', '').toUpperCase()}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+
+                          {isExpanded && (
+                            <tr key={`${rule.id}-expanded`}>
+                              <td colSpan={6} className="bg-black/30 px-6 py-5 border-b border-slate-800/60">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs">
+                                  {/* Left: Palantir ADS Specification */}
+                                  <div className="flex flex-col gap-4 bg-[#0d111c]/50 border border-slate-800/60 p-5 rounded-2xl">
+                                    <span className="font-bold text-indigo-400 uppercase tracking-wider text-[0.7rem] block border-b border-slate-800 pb-2 flex items-center gap-1.5">
+                                      <span>📋</span> Palantir Alerting & Detection Strategy (ADS)
+                                    </span>
+                                    
+                                    <div>
+                                      <span className="text-[0.65rem] font-bold text-slate-500 uppercase tracking-wider block mb-1">Goal</span>
+                                      <p className="text-slate-300 leading-relaxed text-[0.72rem]">{rule.description}</p>
+                                    </div>
+
+                                    <div>
+                                      <span className="text-[0.65rem] font-bold text-slate-500 uppercase tracking-wider block mb-1">Categorization</span>
+                                      <div className="flex flex-wrap gap-1.5 mt-1">
+                                        <span className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-2 py-0.5 rounded font-mono text-[0.66rem] font-semibold">
+                                          Tactic: {rule.tags.find(t => t.includes('credential')) ? 'Credential Access' : rule.tags.find(t => t.includes('persistence')) ? 'Persistence' : rule.tags.find(t => t.includes('evasion')) ? 'Defense Evasion' : 'Command & Control'}
+                                        </span>
+                                        {attackTags.map(tag => (
+                                          <span key={tag} className="bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono text-[0.66rem] border border-slate-700/50">
+                                            {tag}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <span className="text-[0.65rem] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Known False Positives</span>
+                                      <ul className="list-disc list-inside text-slate-400 flex flex-col gap-1 text-[0.7rem] leading-normal pl-1">
+                                        {rule.false_positives.map((fp, idx) => (
+                                          <li key={idx}>{fp}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+
+                                    <div>
+                                      <span className="text-[0.65rem] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Incident Response Playbook</span>
+                                      <div className="flex flex-col gap-2 bg-[#05070c]/50 p-3 rounded-lg border border-slate-800/80">
+                                        <span className="text-[0.72rem] font-bold text-indigo-300">
+                                          Action: {rule.remediation.title}
+                                        </span>
+                                        <ol className="list-decimal list-inside text-slate-400 flex flex-col gap-1 text-[0.7rem] leading-normal pl-1">
+                                          {rule.remediation.steps.map((step, idx) => (
+                                            <li key={idx}>{step}</li>
+                                          ))}
+                                        </ol>
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <span className="text-[0.65rem] font-bold text-slate-500 uppercase tracking-wider block mb-1">Blind Spots & Assumptions</span>
+                                      <p className="text-slate-400 leading-normal text-[0.7rem]">
+                                        Assumes active collection of logs from <span className="font-mono text-cyan-400 bg-slate-900 border border-slate-800 px-1 py-0.5 rounded">{rule.logsource.product}:{rule.logsource.service}</span>. Obfuscated process execution arguments or secondary memory bypasses might not trigger matching criteria.
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {/* Right: Technical Assets (YAML & Compiled Queries) */}
+                                  <div className="flex flex-col gap-5">
+                                    {/* Sigma YAML */}
+                                    <div className="flex flex-col gap-2">
+                                      <div className="flex justify-between items-center">
+                                        <span className="font-bold text-slate-300 uppercase tracking-wider text-[0.68rem] block flex items-center gap-1">
+                                          <span>📝</span> Sigma YAML Specification
+                                        </span>
+                                        <button 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCopyCommand(rule.yaml_string, `copy-db-yaml-${rule.id}`);
+                                          }}
+                                          id={`copy-db-yaml-${rule.id}`}
+                                          className="text-[0.66rem] bg-slate-900 border border-slate-800 text-slate-400 hover:text-white px-2 py-0.5 rounded transition-all cursor-pointer"
+                                        >
+                                          Copy YAML
+                                        </button>
+                                      </div>
+                                      <pre className="bg-[#05070c] border border-slate-800/80 p-4 rounded-xl text-[0.72rem] font-mono text-indigo-300 overflow-x-auto whitespace-pre leading-relaxed select-all">
+                                        {rule.yaml_string}
+                                      </pre>
+                                    </div>
+
+                                    {/* Compiled SIEM Queries */}
+                                    <div className="flex flex-col gap-3">
+                                      <span className="font-bold text-slate-300 uppercase tracking-wider text-[0.68rem] block border-b border-slate-800 pb-1.5 flex items-center gap-1">
+                                        <span>⚙️</span> Compiled SIEM Translation Pipelines
+                                      </span>
+
+                                      {/* Splunk */}
+                                      <div className="flex flex-col gap-1">
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-[0.65rem] text-slate-500 uppercase tracking-wide font-mono">Splunk SPL</span>
+                                          <button 
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleCopyCommand(compileToSplunk(rule), `copy-db-splunk-${rule.id}`);
+                                            }}
+                                            id={`copy-db-splunk-${rule.id}`}
+                                            className="text-[0.62rem] text-cyan-400 hover:text-cyan-300 cursor-pointer"
+                                          >
+                                            Copy Query
+                                          </button>
+                                        </div>
+                                        <pre className="bg-[#05070c] border border-slate-800/80 p-3 rounded-lg text-[0.7rem] font-mono text-cyan-400 overflow-x-auto whitespace-pre-wrap leading-relaxed select-all">
+                                          {compileToSplunk(rule)}
+                                        </pre>
+                                      </div>
+
+                                      {/* KQL */}
+                                      <div className="flex flex-col gap-1">
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-[0.65rem] text-slate-500 uppercase tracking-wide font-mono">Microsoft Sentinel KQL</span>
+                                          <button 
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleCopyCommand(compileToKql(rule), `copy-db-kql-${rule.id}`);
+                                            }}
+                                            id={`copy-db-kql-${rule.id}`}
+                                            className="text-[0.62rem] text-purple-400 hover:text-purple-300 cursor-pointer"
+                                          >
+                                            Copy Query
+                                          </button>
+                                        </div>
+                                        <pre className="bg-[#05070c] border border-slate-800/80 p-3 rounded-lg text-[0.7rem] font-mono text-purple-300 overflow-x-auto whitespace-pre-wrap leading-relaxed select-all">
+                                          {compileToKql(rule)}
+                                        </pre>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Section 2: Reference SIEM Rules Database */}
+            <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6">
+              <header className="border-b border-slate-800/60 pb-5 mb-6">
+                <h2 className="text-xl font-bold text-white mb-1">
+                  🔍 Reference SIEM Detections Database
+                </h2>
+                <p className="text-slate-400 text-xs">
+                  Browse generic reference rules ingested into the SIEM and their required telemetry components.
+                </p>
+              </header>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="text-slate-400 border-b border-slate-800 text-[0.7rem] uppercase tracking-wider font-semibold">
+                      <th className="py-3 px-4">Rule Name</th>
+                      <th className="py-3 px-4">Platform</th>
+                      <th className="py-3 px-4">Language</th>
+                      <th className="py-3 px-4">ATT&CK Mapping</th>
+                      <th className="py-3 px-4">Required Telemetry</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {elasticDetections.map((rule) => (
+                      <tr key={rule.rule_name} className="border-b border-slate-800/60 hover:bg-slate-800/10 transition-colors">
+                        <td className="py-4 px-4 font-semibold text-slate-100">{rule.rule_name}</td>
+                        <td className="py-4 px-4 text-slate-300">{rule.platform}</td>
+                        <td className="py-4 px-4 text-slate-400 font-mono">{rule.query_language}</td>
+                        <td className="py-4 px-4">
+                          <span className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-2 py-0.5 rounded font-mono text-[0.68rem] font-semibold">
+                            {rule.mapped_technique}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="flex flex-wrap gap-1.5">
+                            {rule.required_telemetry.map((telemetry) => (
+                              <span key={telemetry} className="bg-slate-800 text-slate-300 px-2 py-0.5 rounded text-[0.66rem] border border-slate-700/50">
+                                {telemetry}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
