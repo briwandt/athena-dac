@@ -16,3 +16,8 @@
   - `[x]` Add JSON log simulator with interactive logic matching evaluation.
   - `[x]` Test and verify zero-warning Next.js local build.
   - `[x]` Push updates to GitHub to trigger Vercel deployment.
+
+- `[x]` **Phase 5: Integrate Palantir ADS Framework Specs**
+  - `[x]` Populated Rules Database tab with interactive Project Athena rules registry.
+  - `[x]` Implemented Palantir Alerting and Detection Strategy (ADS) Spec panels mapping Goal, Categorization, False Positives, Playbooks, and Assumptions.
+  - `[x]` Tested Next.js production compilation and pushed to GitHub for automated Vercel deployment.

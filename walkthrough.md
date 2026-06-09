@@ -36,9 +36,17 @@ To make the platform an active, hands-on workspace for writing, testing, and imp
 
 ---
 
-## 🗃️ Registry Rules (YAML) & Compiled Outputs
+## 🗃️ Registry Rules & Palantir ADS (Alerting and Detection Strategy) Spec
 
-We implemented 5 production-grade detection rules targeting Windows Endpoint (Sysmon), Identity (Active Directory), Cloud (AWS CloudTrail / Entra ID), and Network (DNS) domains. The TypeScript engine translates them instantly:
+We implemented 5 production-grade detection rules targeting Windows Endpoint (Sysmon), Identity (Active Directory), Cloud (AWS CloudTrail / Entra ID), and Network (DNS) domains. 
+
+To ensure operational alignment, the **Rules Database** tab maps these rules to **Palantir's open-source Alerting & Detection Strategy (ADS) framework**. Expanding any registry rule displays:
+- **Goal**: Clear plain-text objective of the alert.
+- **Categorization**: MITRE tactic and technique mappings.
+- **Known False Positives**: List of benign noise scenarios.
+- **Incident Response Playbook**: Actionable numbered triage instructions.
+- **Blind Spots & Assumptions**: Technical assumptions and bypass paths.
+- **Technical Assets**: Raw Sigma YAML spec along with compiled Splunk SPL and Sentinel KQL queries.
 
 ### 1. Windows Endpoint: LSASS Memory Dumping (Sysmon Event ID 10)
 * **Concept**: Detects unauthorized process access requests targeting `lsass.exe` requesting specific permissions (`0x1010`, `0x1410`, `0x1F1F`), while filtering out trusted platform processes like Svchost and Windows Defender.

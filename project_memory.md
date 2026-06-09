@@ -67,6 +67,9 @@ c:\Users\user\Documents\AntiGravity\detection engineering\
 - **Client-Side YAML Parser**: Custom stack-based line parser (`parseYamlRule`) built directly in TS to map indentation-heavy Sigma YAML formats to rule objects without external packages.
 - **Log Simulator**: Evaluates real-time custom YAML rules against custom JSON log payloads in the browser.
 
+### 7. Palantir ADS Integration
+- **Alerting & Detection Strategy (ADS) Spec**: Renders comprehensive documentation mapping including Goal, Categorization, Known False Positives, Incident Response steps, and Assumptions directly in the Rules Database tab.
+
 ---
 
 ## 💻 Environment & Shell Scripting Cheat Sheet
