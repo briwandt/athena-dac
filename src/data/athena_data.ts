@@ -1304,3 +1304,93 @@ export function parseYamlRule(yamlText: string): Rule {
     yaml_string: yamlText
   };
 }
+
+export interface ResilienceReport {
+  level: 'Hash' | 'IP' | 'Domain' | 'Host Artifact' | 'Network Artifact' | 'TTP';
+  score: number;
+  resilience: 'Fragile' | 'Moderate' | 'Resilient';
+  colorClass: string;
+  explanation: string;
+  recommendations: string[];
+}
+
+export function analyzeRuleResilience(rule: Rule): ResilienceReport {
+  const yamlLower = (rule.yaml_string || "").toLowerCase();
+  
+  let score = 6;
+  let level: 'Hash' | 'IP' | 'Domain' | 'Host Artifact' | 'Network Artifact' | 'TTP' = 'TTP';
+  let resilience: 'Fragile' | 'Moderate' | 'Resilient' = 'Resilient';
+  let colorClass = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+  let explanation = "This rule targets operational behaviors and tactics (TTPs) rather than ephemeral indicators. It identifies the procedural footprint of an attack, making it highly resilient to adversary shifts.";
+  let recommendations: string[] = ["Maintain this rule's behavioral focus by auditing process actions rather than static strings."];
+
+  const hasHashKeys = yamlLower.includes('sha256') || yamlLower.includes('md5') || yamlLower.includes('hash') || yamlLower.includes('hashes');
+  const hasIpKeys = yamlLower.includes('ip') || yamlLower.includes('ip_address') || yamlLower.includes('src_ip') || yamlLower.includes('dest_ip') || /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/.test(yamlLower);
+  const hasDomainKeys = yamlLower.includes('domain') || yamlLower.includes('query') || yamlLower.includes('url') || yamlLower.includes('.com') || yamlLower.includes('.net') || yamlLower.includes('.org');
+
+  if (hasHashKeys) {
+    score = 1;
+    level = 'Hash';
+    resilience = 'Fragile';
+    colorClass = 'text-rose-400 border-rose-500/30 bg-rose-500/10';
+    explanation = "This rule relies on static file hash indicators (Trivial layer of the Pyramid of Pain). File hashes can be trivially changed by the attacker adding single null bytes, completely bypassing this detection.";
+    recommendations = [
+      "Pivot to behavioral logging: detect process command lines or parent-child launch characteristics.",
+      "Incorporate fuzzy hashing (SSDEEP) or import dynamic indicators via threat intelligence feeds."
+    ];
+  } else if (hasIpKeys) {
+    score = 2;
+    level = 'IP';
+    resilience = 'Fragile';
+    colorClass = 'text-rose-400 border-rose-500/30 bg-rose-500/10';
+    explanation = "This rule matches static IP addresses (Easy layer of the Pyramid of Pain). Attackers can spin up fresh C2 proxy endpoints or redirect domain resolutions in minutes, rendering this rule useless.";
+    recommendations = [
+      "Do not hardcode IP lists in rules. Store IPs in dynamic threat feeds or active-list lookups.",
+      "Audit network behavior: monitor connection frequencies, destination geography shifts, or bytes transferred ratios."
+    ];
+  } else if (hasDomainKeys && (yamlLower.includes('filter_common') || yamlLower.includes('query_type') || yamlLower.includes('query_length') || yamlLower.includes('dns'))) {
+    if (yamlLower.includes('query_length')) {
+      score = 6;
+      level = 'TTP';
+      resilience = 'Resilient';
+      colorClass = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+      explanation = "Although targeting domains, this rule evaluates length characteristics (> 80 characters) and DNS types (TXT/CNAME). This measures the underlying protocol abuse behavior, making it highly resilient.";
+      recommendations = [
+        "Monitor for high frequencies of NXDOMAIN replies from anomalous endpoints.",
+        "Add entropy checks to detect base64/hex encoding inside queries."
+      ];
+    } else {
+      score = 3;
+      level = 'Domain';
+      resilience = 'Fragile';
+      colorClass = 'text-amber-500 border-amber-500/30 bg-amber-500/10';
+      explanation = "This rule detects threat activity via static Domain Names (Simple layer of the Pyramid of Pain). Changing domain registration is cheap and quick for threat actors.";
+      recommendations = [
+        "Incorporate DGA (Domain Generation Algorithm) detection capabilities.",
+        "Analyze DNS resolve anomalies: flag domains registered less than 30 days ago resolving from your assets."
+      ];
+    }
+  } else if (yamlLower.includes('targetobject') || yamlLower.includes('registry') || yamlLower.includes('filepath') || yamlLower.includes('file_path')) {
+    score = 4;
+    level = 'Host Artifact';
+    resilience = 'Moderate';
+    colorClass = 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10';
+    explanation = "This rule targets Windows Registry paths or file structures (Annoying layer of the Pyramid of Pain). Bypassing this requires the adversary to rewrite their installation paths or registry subkey structures.";
+    recommendations = [
+      "Combine registry modifications with process telemetry: check if the process editing the registry key is an unsigned binary.",
+      "Monitor API actions or GPO overrides targeting persistence keys."
+    ];
+  } else if (yamlLower.includes('certutil') || yamlLower.includes('mimikatz') || yamlLower.includes('procdump') || yamlLower.includes('msmpeng')) {
+    score = 5;
+    level = 'Host Artifact';
+    resilience = 'Moderate';
+    colorClass = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+    explanation = "This rule targets specific hacktools or utilities (Certutil/Mimikatz). It causes moderate pain to adversaries as they must switch to alternative tools or compile custom source code variations.";
+    recommendations = [
+      "Pivot to telemetry signatures: match API calls (e.g. MiniDumpWriteDump calls to LSASS) rather than binary names like Procdump.",
+      "Audit process hashes and code signatures to identify binary renaming bypasses."
+    ];
+  }
+
+  return { level, score, resilience, colorClass, explanation, recommendations };
+}

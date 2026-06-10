@@ -14,8 +14,74 @@ import {
   TELEMETRY_REQUIREMENTS,
   analyzeLogQuality,
   generateScopingQueries,
-  parseYamlRule
+  parseYamlRule,
+  analyzeRuleResilience,
+  Rule
 } from "../src/data/athena_data";
+
+const DE_AXIOMS = [
+  {
+    number: "01",
+    title: "Understanding Intent",
+    quote: "Consumers of detections will suppress and ignore detections if they do not understand the intent of the detection.",
+    insight: "If security analysts don't understand *why* a rule fired or what it is trying to achieve, they will treat it as noise. Documentation must clearly communicate intent."
+  },
+  {
+    number: "02",
+    title: "The Feedback Loop",
+    quote: "Ignored or suppressed detections destroy the critical feedback loop used to improve those detections.",
+    insight: "A rule is never 'done'. Without continuous telemetry on false positives and true positives, detection engineers cannot refine and tune their logic."
+  },
+  {
+    number: "03",
+    title: "Inevitability of Breaks",
+    quote: "You will push a rule that will break something. Regardless of the controls, training, process, and planning. It will happen.",
+    insight: "Mistakes are inevitable in complex production environments. Accept this reality and design process workflows around safety, rather than claiming perfection."
+  },
+  {
+    number: "04",
+    title: "Revert Speed Matters",
+    quote: "A failure to quickly revert a change will damage your team's reputation much faster than the original break/issue. Plan and train for the worst.",
+    insight: "Since breaks *will* happen, your MTTR (Mean Time to Respond/Revert) for configuration issues is key. Always have a one-click rollback mechanism ready."
+  },
+  {
+    number: "05",
+    title: "Simplicity Wins",
+    quote: "The biggest failures in your work are usually due to a mundane or simple mistakes. Take it slow and don't overcomplicate things.",
+    insight: "Avoid overly complex logic. Nested regexes and long strings of custom conditions are brittle. Simple, focused indicators are easier to maintain and verify."
+  },
+  {
+    number: "06",
+    title: "The Danger of Blind Regex",
+    quote: "If you use REGEX without understanding the data, format, and scope - you will learn the latter things the hard way.",
+    insight: "Regex is a powerful but dangerous tool. Without understanding the exact schema and data variation, a single wild card can consume SIEM CPU or completely drop detections."
+  },
+  {
+    number: "07",
+    title: "Avoid Chasing Everything",
+    quote: "The fastest way to fail is trying to detect all the things. Find the commonality in your risk and attack there.",
+    insight: "Prioritize rules based on actual risk and common threat actor behaviors. A focused catalog of high-fidelity rules is vastly superior to thousands of low-confidence ones."
+  },
+  {
+    number: "08",
+    title: "Missed Detections are Normal",
+    quote: "Identifying detection opportunities that were missed during an incident is normal. Don't take it personally. Work the problem.",
+    insight: "No defense is perfect. Missed events are valuable learning opportunities to conduct post-incident reviews, close visibility gaps, and mature your pipeline."
+  },
+  {
+    number: "09",
+    title: "DE is a Black Box",
+    quote: "Detection Engineering is a black box to others. Communication and education to other departments is as important as any other detection task.",
+    insight: "Educating other teams (like SOC, IT, and executives) on how detections work builds trust and alignment on remediation budgets and security tooling."
+  },
+  {
+    number: "10",
+    title: "Documentation is our Weapon",
+    quote: "Process and Documentation are our weapons of choice. If you don't document what you know vs don't, you will never mature as a team.",
+    insight: "Documentation is not a chore; it is an active defense capability. Documenting logic, gaps, and architectures prevents team silos and enables long-term maturity."
+  }
+];
+
 
 
 // MITRE ATT&CK Matrix Layout (12 core tactics and common techniques)
@@ -162,7 +228,7 @@ function syntaxHighlight(jsonStr: string) {
 }
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'sandbox' | 'compiler' | 'validation' | 'telemetry_audit' | 'ir_scoper' | 'detections' | 'telemetry' | 'playground'>('playground');
+  const [activeTab, setActiveTab] = useState<'sandbox' | 'compiler' | 'validation' | 'telemetry_audit' | 'ir_scoper' | 'detections' | 'telemetry' | 'playground' | 'resilience'>('playground');
   const [activeCampaignId, setActiveCampaignId] = useState<string>('apt29');
   const [highlightedTechId, setHighlightedTechId] = useState<string | null>(null);
   const [expandedLogIndexes, setExpandedLogIndexes] = useState<Set<number>>(new Set());
@@ -171,6 +237,12 @@ export default function Home() {
   const [pastedLogsText, setPastedLogsText] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Resilience & Axioms State
+  const [resilienceRuleId, setResilienceRuleId] = useState<string>(RULES[0].id);
+  const [resilienceYaml, setResilienceYaml] = useState<string>(RULES[0].yaml_string);
+  const [resilienceTabMode, setResilienceTabMode] = useState<'registry' | 'custom'>('registry');
+  const [axiomIndex, setAxiomIndex] = useState<number>(0);
 
   // Athena Compiler State
   const [selectedRuleIdCompiler, setSelectedRuleIdCompiler] = useState<string>(RULES[0].id);
@@ -254,6 +326,16 @@ export default function Home() {
       setPlaygroundEvaluationResult({ evaluated: false, triggered: false, error: null });
     }
   }, [playgroundTemplate]);
+
+  // Sync selected registry rule YAML to the resilience editor when rule ID or mode changes
+  useEffect(() => {
+    if (resilienceTabMode === 'registry') {
+      const rule = RULES.find(r => r.id === resilienceRuleId);
+      if (rule) {
+        setResilienceYaml(rule.yaml_string);
+      }
+    }
+  }, [resilienceRuleId, resilienceTabMode]);
 
   // References for scrolling elements
   const timelineItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -501,6 +583,12 @@ export default function Home() {
             className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'detections' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
           >
             🔍 Rules Database
+          </button>
+          <button 
+            onClick={() => setActiveTab('resilience')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'resilience' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
+          >
+            📐 Resilience & Axioms
           </button>
           <button 
             onClick={() => setActiveTab('telemetry')}
@@ -1761,6 +1849,7 @@ export default function Home() {
                       <th className="py-3 px-4">Severity</th>
                       <th className="py-3 px-4">Category</th>
                       <th className="py-3 px-4">Log Source</th>
+                      <th className="py-3 px-4">Resilience / Pain Level</th>
                       <th className="py-3 px-4">ATT&CK Tags</th>
                     </tr>
                   </thead>
@@ -1804,6 +1893,11 @@ export default function Home() {
                               {rule.logsource.product}:{rule.logsource.service}
                             </td>
                             <td className="py-4 px-4">
+                              <span className={`text-[0.62rem] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${analyzeRuleResilience(rule).colorClass}`}>
+                                {analyzeRuleResilience(rule).resilience} ({analyzeRuleResilience(rule).level})
+                              </span>
+                            </td>
+                            <td className="py-4 px-4">
                               <div className="flex flex-wrap gap-1">
                                 {attackTags.map(tag => (
                                   <span key={tag} className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-2 py-0.5 rounded font-mono text-[0.64rem] font-semibold">
@@ -1816,7 +1910,7 @@ export default function Home() {
 
                           {isExpanded && (
                             <tr key={`${rule.id}-expanded`}>
-                              <td colSpan={6} className="bg-black/30 px-6 py-5 border-b border-slate-800/60">
+                              <td colSpan={7} className="bg-black/30 px-6 py-5 border-b border-slate-800/60">
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs">
                                   {/* Left: Palantir ADS Specification */}
                                   <div className="flex flex-col gap-4 bg-[#0d111c]/50 border border-slate-800/60 p-5 rounded-2xl">
@@ -2007,6 +2101,363 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {/* Active Tab: RESILIENCE & AXIOMS */}
+        {activeTab === 'resilience' && (() => {
+          let auditedRule: Rule;
+          let parseError: string | null = null;
+          
+          if (resilienceTabMode === 'registry') {
+            const registryRule = RULES.find(r => r.id === resilienceRuleId) || RULES[0];
+            auditedRule = registryRule;
+          } else {
+            try {
+              auditedRule = parseYamlRule(resilienceYaml);
+            } catch (e: any) {
+              parseError = e.message;
+              auditedRule = {
+                ...RULES[0],
+                title: "Malformed Custom Rule",
+                yaml_string: resilienceYaml
+              };
+            }
+          }
+
+          const report = analyzeRuleResilience(auditedRule);
+
+          return (
+            <>
+              <header className="border-b border-slate-800/60 pb-5">
+                <h2 className="text-2xl font-bold tracking-tight text-white mb-1 flex items-center gap-2">
+                  📐 Resilience Auditor & Operational Axioms
+                </h2>
+                <p className="text-slate-400 text-sm max-w-4xl">
+                  Evaluate detection resilience on the Pyramid of Pain (from trivial Hash lists to resilient behavioral TTPs). Review our 10 operational axioms for high-impact engineering.
+                </p>
+              </header>
+
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                
+                {/* Left Column: Rule Selector & Auditor Summary (Span 5) */}
+                <div className="xl:col-span-5 flex flex-col gap-6">
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 backdrop-blur-xl flex flex-col gap-4">
+                    
+                    {/* Tab Mode Toggle */}
+                    <div className="flex bg-[#05070c] p-1 rounded-lg border border-slate-800/80">
+                      <button
+                        onClick={() => setResilienceTabMode('registry')}
+                        className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-all ${resilienceTabMode === 'registry' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        Production Registry
+                      </button>
+                      <button
+                        onClick={() => setResilienceTabMode('custom')}
+                        className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-all ${resilienceTabMode === 'custom' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                      >
+                        Custom Sigma Editor
+                      </button>
+                    </div>
+
+                    {/* Selector or Editor conditional inputs */}
+                    {resilienceTabMode === 'registry' ? (
+                      <div>
+                        <label htmlFor="resilience-rule-select" className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                          Select Registered Rule
+                        </label>
+                        <select 
+                          id="resilience-rule-select"
+                          value={resilienceRuleId}
+                          onChange={(e) => setResilienceRuleId(e.target.value)}
+                          className="w-full bg-[#05070c] border border-slate-800 text-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
+                        >
+                          {RULES.map(r => (
+                            <option key={r.id} value={r.id}>{r.title}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">Sigma YAML Editor</span>
+                          {parseError ? (
+                            <span className="text-[0.65rem] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded font-mono font-semibold">
+                              Malformed YAML
+                            </span>
+                          ) : (
+                            <span className="text-[0.65rem] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-mono font-semibold">
+                              YAML Valid
+                            </span>
+                          )}
+                        </div>
+                        <textarea
+                          value={resilienceYaml}
+                          onChange={(e) => setResilienceYaml(e.target.value)}
+                          className="w-full bg-[#05070c] border border-slate-800 rounded-xl p-3.5 text-[0.72rem] font-mono text-indigo-300 focus:outline-none focus:border-indigo-500 resize-none h-[180px]"
+                          placeholder="Paste your Sigma YAML here to audit..."
+                        />
+                        {parseError && (
+                          <div className="bg-rose-950/20 border border-rose-500/30 text-rose-400 p-2.5 rounded-lg text-[0.7rem] font-mono leading-normal">
+                            Error: {parseError}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Audit Metrics Panel */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 flex flex-col gap-4 backdrop-blur-xl">
+                    <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider border-b border-slate-800 pb-2 flex items-center justify-between">
+                      <span>📐 Resilience Audit Report</span>
+                      <span className={`text-[0.62rem] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${report.colorClass}`}>
+                        {report.resilience}
+                      </span>
+                    </h3>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-[#05070c]/50 border border-slate-800/60 p-3.5 rounded-xl">
+                        <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider block">Pyramid Level</span>
+                        <span className="text-sm font-bold text-white mt-1 block">{report.level}</span>
+                      </div>
+                      <div className="bg-[#05070c]/50 border border-slate-800/60 p-3.5 rounded-xl">
+                        <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider block">Resilience Score</span>
+                        <span className="text-sm font-bold text-white mt-1 block font-mono">{report.score} / 6</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider block mb-1">Technical Audit Details</span>
+                      <p className="text-xs text-slate-300 leading-relaxed bg-[#05070c]/30 border border-slate-800/50 p-3 rounded-xl">
+                        {report.explanation}
+                      </p>
+                    </div>
+
+                    <div>
+                      <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider block mb-1.5">Actionable Recommendations to Summit the Pyramid</span>
+                      <ul className="flex flex-col gap-2">
+                        {report.recommendations.map((rec, index) => (
+                          <li key={index} className="text-xs text-slate-400 flex gap-2">
+                            <span className="text-indigo-400 font-bold">»</span>
+                            <span className="leading-normal">{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: 3D Pyramid of Pain Visualization & Axioms Carousel (Span 7) */}
+                <div className="xl:col-span-7 flex flex-col gap-8">
+                  
+                  {/* Pyramid of Pain stack visualizer */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 flex flex-col md:flex-row items-center gap-8 backdrop-blur-xl">
+                    
+                    {/* Pyramid container */}
+                    <div className="flex-1 w-full flex flex-col items-center justify-center py-4 relative">
+                      
+                      <div 
+                        className="w-full max-w-[320px] flex flex-col gap-2"
+                        style={{ 
+                          perspective: '800px',
+                          transformStyle: 'preserve-3d' 
+                        }}
+                      >
+                        {/* Layer 6: TTPs */}
+                        <div 
+                          className={`relative py-3 rounded-lg border text-center transition-all duration-300 select-none ${
+                            report.score === 6 
+                              ? 'bg-emerald-500/20 border-emerald-400 text-white font-bold scale-[1.03] shadow-lg shadow-emerald-500/20' 
+                              : 'bg-[#101625]/60 border-slate-800/50 text-slate-500 opacity-45 scale-[0.98]'
+                          }`}
+                          style={{
+                            transform: `rotateX(20deg) translateZ(${report.score === 6 ? '15px' : '0px'})`,
+                            clipPath: 'polygon(20% 0%, 80% 0%, 90% 100%, 10% 100%)'
+                          }}
+                        >
+                          <span className="text-[0.68rem] tracking-widest block uppercase font-mono mb-0.5 text-slate-400">Tough</span>
+                          <span className="text-xs tracking-wider">6. TTPs / Behaviors</span>
+                        </div>
+
+                        {/* Layer 5: Tools */}
+                        <div 
+                          className={`relative py-3 rounded-lg border text-center transition-all duration-300 select-none ${
+                            report.score === 5 
+                              ? 'bg-emerald-500/20 border-emerald-400 text-white font-bold scale-[1.03] shadow-lg shadow-emerald-500/20' 
+                              : 'bg-[#101625]/60 border-slate-800/50 text-slate-500 opacity-45 scale-[0.98]'
+                          }`}
+                          style={{
+                            transform: `rotateX(20deg) translateZ(${report.score === 5 ? '15px' : '0px'})`,
+                            clipPath: 'polygon(15% 0%, 85% 0%, 93% 100%, 7% 100%)'
+                          }}
+                        >
+                          <span className="text-[0.68rem] tracking-widest block uppercase font-mono mb-0.5 text-slate-400">Challenging</span>
+                          <span className="text-xs tracking-wider">5. Tools</span>
+                        </div>
+
+                        {/* Layer 4: Host/Network Artifacts */}
+                        <div 
+                          className={`relative py-3 rounded-lg border text-center transition-all duration-300 select-none ${
+                            report.score === 4 
+                              ? 'bg-cyan-500/20 border-cyan-400 text-white font-bold scale-[1.03] shadow-lg shadow-cyan-500/20' 
+                              : 'bg-[#101625]/60 border-slate-800/50 text-slate-500 opacity-45 scale-[0.98]'
+                          }`}
+                          style={{
+                            transform: `rotateX(20deg) translateZ(${report.score === 4 ? '15px' : '0px'})`,
+                            clipPath: 'polygon(10% 0%, 90% 0%, 96% 100%, 4% 100%)'
+                          }}
+                        >
+                          <span className="text-[0.68rem] tracking-widest block uppercase font-mono mb-0.5 text-slate-400">Annoying</span>
+                          <span className="text-xs tracking-wider">4. Host / Network Artifacts</span>
+                        </div>
+
+                        {/* Layer 3: Domain Names */}
+                        <div 
+                          className={`relative py-3 rounded-lg border text-center transition-all duration-300 select-none ${
+                            report.score === 3 
+                              ? 'bg-blue-500/20 border-blue-400 text-white font-bold scale-[1.03] shadow-lg shadow-blue-500/20' 
+                              : 'bg-[#101625]/60 border-slate-800/50 text-slate-500 opacity-45 scale-[0.98]'
+                          }`}
+                          style={{
+                            transform: `rotateX(20deg) translateZ(${report.score === 3 ? '15px' : '0px'})`,
+                            clipPath: 'polygon(7% 0%, 93% 0%, 98% 100%, 2% 100%)'
+                          }}
+                        >
+                          <span className="text-[0.68rem] tracking-widest block uppercase font-mono mb-0.5 text-slate-400">Simple</span>
+                          <span className="text-xs tracking-wider">3. Domain Names</span>
+                        </div>
+
+                        {/* Layer 2: IP Addresses */}
+                        <div 
+                          className={`relative py-3 rounded-lg border text-center transition-all duration-300 select-none ${
+                            report.score === 2 
+                              ? 'bg-amber-500/20 border-amber-400 text-white font-bold scale-[1.03] shadow-lg shadow-amber-500/20' 
+                              : 'bg-[#101625]/60 border-slate-800/50 text-slate-500 opacity-45 scale-[0.98]'
+                          }`}
+                          style={{
+                            transform: `rotateX(20deg) translateZ(${report.score === 2 ? '15px' : '0px'})`,
+                            clipPath: 'polygon(4% 0%, 96% 0%, 99% 100%, 1% 100%)'
+                          }}
+                        >
+                          <span className="text-[0.68rem] tracking-widest block uppercase font-mono mb-0.5 text-slate-400">Easy</span>
+                          <span className="text-xs tracking-wider">2. IP Addresses</span>
+                        </div>
+
+                        {/* Layer 1: Hash Values */}
+                        <div 
+                          className={`relative py-3 rounded-lg border text-center transition-all duration-300 select-none ${
+                            report.score === 1 
+                              ? 'bg-rose-500/20 border-rose-400 text-white font-bold scale-[1.03] shadow-lg shadow-rose-500/20' 
+                              : 'bg-[#101625]/60 border-slate-800/50 text-slate-500 opacity-45 scale-[0.98]'
+                          }`}
+                          style={{
+                            transform: `rotateX(20deg) translateZ(${report.score === 1 ? '15px' : '0px'})`,
+                            clipPath: 'polygon(2% 0%, 98% 0%, 100% 100%, 0% 100%)'
+                          }}
+                        >
+                          <span className="text-[0.68rem] tracking-widest block uppercase font-mono mb-0.5 text-slate-400">Trivial</span>
+                          <span className="text-xs tracking-wider">1. Hash Values</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Gauge and numeric stats */}
+                    <div className="w-full md:w-[220px] flex flex-col gap-4 border-t md:border-t-0 md:border-l border-slate-800/80 pt-5 md:pt-0 md:pl-6">
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Pyramid Scoreboard</span>
+                      
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider font-semibold">Resilience Level</span>
+                        <span className={`text-xl font-bold font-mono ${report.score >= 5 ? 'text-emerald-400' : report.score === 4 ? 'text-cyan-400' : report.score === 3 ? 'text-blue-400' : report.score === 2 ? 'text-amber-400' : 'text-rose-400'}`}>
+                          {report.resilience}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider font-semibold">Active Pain Index</span>
+                        <div className="flex items-center gap-3">
+                          <div className="w-full bg-[#05070c] rounded-full h-2.5 border border-slate-800">
+                            <div 
+                              className={`h-2 rounded-full ${report.score >= 5 ? 'bg-emerald-500 shadow-sm shadow-emerald-500/30' : report.score === 4 ? 'bg-cyan-500 shadow-sm shadow-cyan-500/30' : report.score === 3 ? 'bg-blue-500' : report.score === 2 ? 'bg-amber-500' : 'bg-rose-500'}`} 
+                              style={{ width: `${(report.score / 6) * 100}%` }}
+                            />
+                          </div>
+                          <span className="text-xs font-mono font-bold text-white shrink-0">{report.score}/6</span>
+                        </div>
+                      </div>
+
+                      <div className="text-[0.68rem] text-slate-400 leading-normal bg-black/20 p-3 rounded-xl border border-slate-800/50">
+                        <strong>Analysis:</strong> Focus detection logic above Level 3 to trigger high attacker cost. Chasing hashes/IPs creates excessive alarms and minor security benefit.
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Operational Axioms Carousel */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6 backdrop-blur-xl flex flex-col gap-5 relative overflow-hidden">
+                    
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl"></div>
+
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                      <div>
+                        <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                          <span>🧠</span> Detection Engineering Operational Axioms
+                        </h3>
+                        <p className="text-slate-500 text-[0.68rem] mt-0.5">10 Core Hot-Takes & Philosophies for Interview Prep</p>
+                      </div>
+                      <span className="font-mono text-xs text-indigo-400 font-bold bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded">
+                        Axiom {DE_AXIOMS[axiomIndex].number} of 10
+                      </span>
+                    </div>
+
+                    {/* Active Card Body */}
+                    <div className="min-h-[160px] flex flex-col justify-center gap-4 bg-slate-900/40 border border-slate-800/60 rounded-xl p-5 hover:border-slate-700/60 transition-all duration-300">
+                      <div className="flex items-center gap-2">
+                        <span className="text-3xl text-indigo-500/30 font-serif leading-none">“</span>
+                        <h4 className="font-bold text-base text-slate-200">{DE_AXIOMS[axiomIndex].title}</h4>
+                      </div>
+                      <p className="text-sm font-medium italic text-slate-300 pl-4 border-l-2 border-indigo-500/50 leading-relaxed">
+                        {DE_AXIOMS[axiomIndex].quote}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-2 leading-relaxed bg-black/20 p-2.5 rounded-lg border border-slate-800/50">
+                        <strong className="text-indigo-400">Insight:</strong> {DE_AXIOMS[axiomIndex].insight}
+                      </p>
+                    </div>
+
+                    {/* Controls */}
+                    <div className="flex justify-between items-center">
+                      <div className="flex gap-1.5">
+                        {DE_AXIOMS.map((_, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setAxiomIndex(idx)}
+                            className={`h-1.5 rounded-full transition-all duration-300 ${idx === axiomIndex ? 'w-5 bg-indigo-500' : 'w-1.5 bg-slate-700 hover:bg-slate-600'}`}
+                            aria-label={`Go to slide ${idx + 1}`}
+                          />
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setAxiomIndex(prev => (prev - 1 + 10) % 10)}
+                          className="bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold transition-all hover:scale-[1.05] active:scale-[0.95] cursor-pointer"
+                          aria-label="Previous Axiom"
+                        >
+                          ◀
+                        </button>
+                        <button
+                          onClick={() => setAxiomIndex(prev => (prev + 1) % 10)}
+                          className="bg-indigo-600 hover:bg-indigo-500 text-white w-9 h-9 rounded-lg flex items-center justify-center text-sm font-bold transition-all shadow-md shadow-indigo-500/20 hover:scale-[1.05] active:scale-[0.95] cursor-pointer"
+                          aria-label="Next Axiom"
+                        >
+                          ▶
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+            </>
+          );
+        })()}
 
         {/* Active Tab: TELEMETRY INVENTORY (Tab 3) */}
         {activeTab === 'telemetry' && (

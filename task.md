@@ -21,3 +21,13 @@
   - `[x]` Populated Rules Database tab with interactive Project Athena rules registry.
   - `[x]` Implemented Palantir Alerting and Detection Strategy (ADS) Spec panels mapping Goal, Categorization, False Positives, Playbooks, and Assumptions.
   - `[x]` Tested Next.js production compilation and pushed to GitHub for automated Vercel deployment.
+
+- `[/]` **Phase 6: Heuristic Resilience Analyzer & Axioms Workspace**
+  - `[x]` Implement `analyzeRuleResilience` logic engine in `src/data/athena_data.ts`.
+  - `[x]` Add `📐 Resilience & Axioms` tab button in the sidebar of `app/page.tsx`.
+  - `[x]` Add custom Sigma rule editor and pre-built rule selector in the new workspace.
+  - `[x]` Implement the visual 3D-styled Pyramid of Pain stack layout in CSS.
+  - `[x]` Implement the 10 operational axioms carousel cards feed.
+  - `[x]` Add Resilience Score columns and badges to the main Rules Database table.
+  - `[/]` Compile local Next.js build and verify zero warnings.
+  - `[ ]` Deploy updates to GitHub to sync Vercel.
