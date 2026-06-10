@@ -16,7 +16,10 @@ import {
   generateScopingQueries,
   parseYamlRule,
   analyzeRuleResilience,
-  Rule
+  Rule,
+  THREAT_ADVISORIES,
+  simulateYaraScan,
+  simulateSIEMQuery
 } from "../src/data/athena_data";
 
 const DE_AXIOMS = [
@@ -228,7 +231,13 @@ function syntaxHighlight(jsonStr: string) {
 }
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'sandbox' | 'compiler' | 'validation' | 'telemetry_audit' | 'ir_scoper' | 'detections' | 'telemetry' | 'playground' | 'resilience'>('playground');
+  // Dynamic Rules Registry & Telemetry state
+  const [registeredRules, setRegisteredRules] = useState<Rule[]>(RULES);
+  const [registryTelemetry, setRegistryTelemetry] = useState<Record<string, any[]>>(MOCK_TELEMETRY);
+  const [isEditingDataset, setIsEditingDataset] = useState(false);
+  const [datasetJsonText, setDatasetJsonText] = useState("");
+
+  const [activeTab, setActiveTab] = useState<'sandbox' | 'compiler' | 'validation' | 'telemetry_audit' | 'ir_scoper' | 'detections' | 'telemetry' | 'playground' | 'resilience' | 'intel_lab'>('intel_lab');
   const [activeCampaignId, setActiveCampaignId] = useState<string>('apt29');
   const [highlightedTechId, setHighlightedTechId] = useState<string | null>(null);
   const [expandedLogIndexes, setExpandedLogIndexes] = useState<Set<number>>(new Set());
@@ -243,6 +252,24 @@ export default function Home() {
   const [resilienceYaml, setResilienceYaml] = useState<string>(RULES[0].yaml_string);
   const [resilienceTabMode, setResilienceTabMode] = useState<'registry' | 'custom'>('registry');
   const [axiomIndex, setAxiomIndex] = useState<number>(0);
+
+  // Threat Intel to Detection State
+  const [intelAdvisoryId, setIntelAdvisoryId] = useState<string>("apt29-webshell");
+  const [intelFormat, setIntelFormat] = useState<'yara' | 'kql' | 'spl'>('yara');
+  const [intelPayloadYara, setIntelPayloadYara] = useState<string>("");
+  const [intelPayloadKql, setIntelPayloadKql] = useState<string>("");
+  const [intelPayloadSpl, setIntelPayloadSpl] = useState<string>("");
+  const [intelYaraResult, setIntelYaraResult] = useState<{
+    scanned: boolean;
+    triggered: boolean;
+    matchedStrings: string[];
+    error: string | null;
+  }>({ scanned: false, triggered: false, matchedStrings: [], error: null });
+  const [intelSIEMResult, setIntelSIEMResult] = useState<{
+    executed: boolean;
+    triggered: boolean;
+    error: string | null;
+  }>({ executed: false, triggered: false, error: null });
 
   // Athena Compiler State
   const [selectedRuleIdCompiler, setSelectedRuleIdCompiler] = useState<string>(RULES[0].id);
@@ -291,7 +318,7 @@ export default function Home() {
       dns: "d8d74542-a8b2-4d26-bb21-1d361c47a544"
     };
     const defaultRuleId = sourceToRuleMap[selectedSourceType];
-    const defaultLog = MOCK_TELEMETRY[defaultRuleId]?.[0];
+    const defaultLog = registryTelemetry[defaultRuleId]?.[0];
     if (defaultLog) {
       // Remove label before displaying
       const { label, ...cleanLog } = defaultLog;
@@ -300,7 +327,7 @@ export default function Home() {
       setAuditJsonInput("{}");
     }
     setAuditReport(null);
-  }, [selectedSourceType]);
+  }, [selectedSourceType, registryTelemetry]);
 
   // Sync DaC Playground templates and logs
   useEffect(() => {
@@ -330,12 +357,32 @@ export default function Home() {
   // Sync selected registry rule YAML to the resilience editor when rule ID or mode changes
   useEffect(() => {
     if (resilienceTabMode === 'registry') {
-      const rule = RULES.find(r => r.id === resilienceRuleId);
+      const rule = registeredRules.find(r => r.id === resilienceRuleId);
       if (rule) {
         setResilienceYaml(rule.yaml_string);
       }
     }
-  }, [resilienceRuleId, resilienceTabMode]);
+  }, [resilienceRuleId, resilienceTabMode, registeredRules]);
+
+  // Sync datasetJsonText when selectedRuleIdValidation changes
+  useEffect(() => {
+    const dataset = registryTelemetry[selectedRuleIdValidation] || [];
+    setDatasetJsonText(JSON.stringify(dataset, null, 2));
+    setIsEditingDataset(false);
+    setValidationReport(null);
+  }, [selectedRuleIdValidation, registryTelemetry]);
+
+  // Sync default payloads when Threat Advisory changes
+  useEffect(() => {
+    const adv = THREAT_ADVISORIES.find(a => a.id === intelAdvisoryId);
+    if (adv) {
+      setIntelPayloadYara(adv.yaraPayload);
+      setIntelPayloadKql(adv.kqlPayload);
+      setIntelPayloadSpl(adv.splPayload);
+      setIntelYaraResult({ scanned: false, triggered: false, matchedStrings: [], error: null });
+      setIntelSIEMResult({ executed: false, triggered: false, error: null });
+    }
+  }, [intelAdvisoryId]);
 
   // References for scrolling elements
   const timelineItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -361,6 +408,116 @@ export default function Home() {
       next.add(index);
     }
     setExpandedLogIndexes(next);
+  };
+
+  const handleRegisterRule = () => {
+    if (!playgroundYaml.trim()) {
+      alert("Cannot register rule: please verify the YAML first.");
+      return;
+    }
+    
+    let parsed: any;
+    try {
+      parsed = parseYamlRule(playgroundYaml);
+    } catch (e: any) {
+      alert(`Cannot register rule: Malformed YAML - ${e.message}`);
+      return;
+    }
+
+    if (!parsed.title || parsed.title === "Untitled Sigma Rule") {
+      alert("Please specify a descriptive title in your Sigma YAML rule.");
+      return;
+    }
+
+    // Ensure the rule has a unique ID, or generate one
+    const newId = parsed.id && parsed.id !== "temp-id-12345"
+      ? parsed.id 
+      : `rule-${Date.now()}`;
+      
+    const ruleToAdd: Rule = {
+      ...parsed,
+      id: newId,
+      yaml_string: playgroundYaml
+    };
+
+    // Add to registeredRules state
+    setRegisteredRules(prev => {
+      const existsIdx = prev.findIndex(r => r.id === newId || r.title === parsed.title);
+      if (existsIdx !== -1) {
+        const next = [...prev];
+        next[existsIdx] = ruleToAdd;
+        return next;
+      }
+      return [...prev, ruleToAdd];
+    });
+
+    // Add current playgroundLog as its telemetry if valid JSON
+    let mockEvents: any[] = [];
+    try {
+      if (playgroundLog.trim()) {
+        const rec = JSON.parse(playgroundLog);
+        if (Array.isArray(rec)) {
+          mockEvents = rec.map(r => ({ ...r, label: r.label || 'malicious' }));
+        } else {
+          mockEvents = [{ ...rec, label: rec.label || 'malicious' }];
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // If no events were provided or parsed, create a default matching log for validation purposes
+    if (mockEvents.length === 0) {
+      const mockRecord: any = { label: "malicious" };
+      if (parsed.detection) {
+        for (const [selectKey, selectObj] of Object.entries(parsed.detection)) {
+          if (selectKey !== 'condition' && selectObj && typeof selectObj === 'object') {
+            for (const [f, val] of Object.entries(selectObj)) {
+              mockRecord[f] = Array.isArray(val) ? val[0] : val;
+            }
+          }
+        }
+      }
+      if (!mockRecord.EventID && parsed.logsource?.service === 'sysmon') {
+        mockRecord.EventID = 1;
+      }
+      mockEvents = [mockRecord];
+    }
+
+    setRegistryTelemetry(prev => ({
+      ...prev,
+      [newId]: mockEvents
+    }));
+
+    // Switch to database and select this rule
+    setExpandedRuleIds(prev => {
+      const next = new Set(prev);
+      next.add(newId);
+      return next;
+    });
+
+    setSelectedRuleIdCompiler(newId);
+    setSelectedRuleIdValidation(newId);
+    setResilienceRuleId(newId);
+    setActiveTab('detections');
+  };
+
+  const handleSaveDataset = () => {
+    try {
+      const parsed = JSON.parse(datasetJsonText);
+      if (!Array.isArray(parsed)) {
+        alert("Dataset must be a JSON array of event log objects.");
+        return;
+      }
+      setRegistryTelemetry(prev => ({
+        ...prev,
+        [selectedRuleIdValidation]: parsed
+      }));
+      setIsEditingDataset(false);
+      setValidationReport(null);
+    } catch (e: any) {
+      alert(`Invalid JSON format: ${e.message}`);
+    }
   };
 
   // Interaction handlers
@@ -544,6 +701,12 @@ export default function Home() {
           >
             🛡️ Campaign Heatmap
           </button>
+          <button 
+            onClick={() => setActiveTab('intel_lab')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'intel_lab' ? 'bg-indigo-500/10 border border-indigo-500/30 text-indigo-300' : 'text-slate-400 hover:bg-slate-800/40'}`}
+          >
+            📝 Threat Intel to Detection Lab
+          </button>
 
           <span className="text-[0.7rem] uppercase text-slate-500 tracking-wider font-semibold mt-4 mb-2">Athena Pipeline</span>
           <button 
@@ -671,6 +834,306 @@ export default function Home() {
       {/* Main Panel Content */}
       <section className="flex-1 p-6 md:p-10 overflow-y-auto flex flex-col gap-8 max-w-7xl">
         
+        {/* Active Tab: THREAT INTEL TO DETECTION LAB */}
+        {activeTab === 'intel_lab' && (() => {
+          const advisory = THREAT_ADVISORIES.find(a => a.id === intelAdvisoryId) || THREAT_ADVISORIES[0];
+          
+          const handleRunYara = () => {
+            const result = simulateYaraScan(advisory.id, intelPayloadYara);
+            setIntelYaraResult({
+              scanned: true,
+              triggered: result.triggered,
+              matchedStrings: result.matchedStrings,
+              error: result.error
+            });
+          };
+
+          const handleRunSIEM = () => {
+            if (intelFormat === 'yara') return;
+            const payload = intelFormat === 'kql' ? intelPayloadKql : intelPayloadSpl;
+            const result = simulateSIEMQuery(advisory.id, intelFormat, payload);
+            setIntelSIEMResult({
+              executed: true,
+              triggered: result.triggered,
+              error: result.error
+            });
+          };
+
+          return (
+            <>
+              <header className="border-b border-slate-800/60 pb-5">
+                <h2 className="text-2xl font-bold tracking-tight text-white mb-1 flex items-center gap-2">
+                  📝 Threat Intel to Detection Lab
+                </h2>
+                <p className="text-slate-400 text-sm max-w-4xl">
+                  Analyze real threat intelligence reports and see how detection engineers translate threat behaviors into YARA, KQL, and SPL rules. Test and evaluate rules in real-time.
+                </p>
+              </header>
+
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                
+                {/* Left Column: Advisory, Detections, & Construction Guide (Span 6) */}
+                <div className="xl:col-span-6 flex flex-col gap-6">
+                  {/* Report Select & Threat Report Extract */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 backdrop-blur-xl flex flex-col gap-4">
+                    <div>
+                      <label htmlFor="intel-advisory-select" className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                        Select Threat Advisory Report
+                      </label>
+                      <select 
+                        id="intel-advisory-select"
+                        value={intelAdvisoryId}
+                        onChange={(e) => setIntelAdvisoryId(e.target.value)}
+                        className="w-full bg-[#05070c] border border-slate-800 text-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      >
+                        {THREAT_ADVISORIES.map(a => (
+                          <option key={a.id} value={a.id}>{a.title}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="border-t border-slate-800/60 pt-3">
+                      <span className="text-[0.65rem] text-slate-500 uppercase tracking-wider font-semibold block mb-1">
+                        Report Source: {advisory.source}
+                      </span>
+                      <div className="bg-black/20 border border-slate-800/40 p-4 rounded-xl text-xs text-slate-300 leading-relaxed font-sans select-text whitespace-pre-wrap">
+                        {advisory.extract.split(/(certutil\.exe|ASPX web shells|Sec-WebShell-Token|-urlcache|registry run keys|vssadmin\.exe delete shadows|vssadmin\.exe)/g).map((word, idx) => {
+                          const lower = word.toLowerCase();
+                          const isKeyword = ["certutil.exe", "aspx web shells", "sec-webshell-token", "-urlcache", "registry run keys", "vssadmin.exe delete shadows", "vssadmin.exe"].includes(lower);
+                          if (isKeyword) {
+                            return <span key={idx} className="bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.5 rounded font-mono font-semibold text-[0.72rem]">{word}</span>;
+                          }
+                          return word;
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step-by-Step Construction Guide */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 backdrop-blur-xl flex flex-col gap-4">
+                    <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider border-b border-slate-800 pb-2 flex items-center gap-1.5">
+                      <span>🛠️</span> How Detections are Engineered from Reports
+                    </h3>
+
+                    <div className="flex flex-col gap-3">
+                      {advisory.logicBreakdown.map((item, idx) => (
+                        <div key={idx} className="bg-[#05070c]/50 border border-slate-800/60 p-4 rounded-xl flex items-start gap-4">
+                          <div className="w-6 h-6 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-xs font-mono font-bold text-indigo-300 shrink-0">
+                            {idx + 1}
+                          </div>
+                          <div className="flex-1 text-xs">
+                            <span className="font-bold text-slate-200 block text-[0.78rem] mb-1">{item.step}</span>
+                            <div className="text-slate-400 mb-2 leading-relaxed">
+                              <span className="text-slate-500 font-semibold uppercase text-[0.62rem] block">Intelligence Indicator</span>
+                              {item.indicator}
+                            </div>
+                            <div className="text-indigo-300 font-mono text-[0.7rem] bg-black/20 p-2 rounded-lg border border-slate-800/50">
+                              <span className="text-slate-500 font-semibold uppercase text-[0.62rem] block font-sans">Rule Translation</span>
+                              {item.translation}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Rule Code Tab Viewer */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 backdrop-blur-xl flex flex-col gap-4">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                      <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Detection Logic Code</span>
+                      <div className="flex bg-[#05070c] p-0.5 rounded border border-slate-800">
+                        <button
+                          onClick={() => setIntelFormat('yara')}
+                          className={`px-3 py-1 rounded text-[0.68rem] font-bold transition-all ${intelFormat === 'yara' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          YARA (File/Mem)
+                        </button>
+                        <button
+                          onClick={() => setIntelFormat('kql')}
+                          className={`px-3 py-1 rounded text-[0.68rem] font-bold transition-all ${intelFormat === 'kql' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          KQL (Sentinel)
+                        </button>
+                        <button
+                          onClick={() => setIntelFormat('spl')}
+                          className={`px-3 py-1 rounded text-[0.68rem] font-bold transition-all ${intelFormat === 'spl' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                        >
+                          SPL (Splunk)
+                        </button>
+                      </div>
+                    </div>
+
+                    <pre className="bg-[#05070c] border border-slate-800/80 p-4 rounded-xl text-[0.72rem] font-mono text-cyan-400 overflow-x-auto whitespace-pre leading-relaxed select-all">
+                      {intelFormat === 'yara' ? advisory.yaraCode : intelFormat === 'kql' ? advisory.kqlCode : advisory.splCode}
+                    </pre>
+                  </div>
+                </div>
+
+                {/* Right Column: Live Testing Simulators (Span 6) */}
+                <div className="xl:col-span-6 flex flex-col gap-6">
+                  
+                  {/* Active Simulator Block */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 backdrop-blur-xl flex flex-col gap-4">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                      <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>🧪</span> {intelFormat === 'yara' ? 'YARA Binary Scanner' : intelFormat === 'kql' ? 'Sentinel KQL Simulator' : 'Splunk SPL Searcher'}
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (intelFormat === 'yara') setIntelPayloadYara(advisory.yaraPayload);
+                          else if (intelFormat === 'kql') setIntelPayloadKql(advisory.kqlPayload);
+                          else setIntelPayloadSpl(advisory.splPayload);
+                          setIntelYaraResult({ scanned: false, triggered: false, matchedStrings: [], error: null });
+                          setIntelSIEMResult({ executed: false, triggered: false, error: null });
+                        }}
+                        className="text-[0.66rem] text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer"
+                      >
+                        Reset Payload
+                      </button>
+                    </div>
+
+                    {intelFormat === 'yara' ? (
+                      <div className="flex flex-col gap-4">
+                        <label htmlFor="intel-payload-yara" className="text-[0.68rem] text-slate-500 uppercase tracking-wider font-semibold block">
+                          Inspect File Data (Hex or ASCII String representation)
+                        </label>
+                        <textarea
+                          id="intel-payload-yara"
+                          value={intelPayloadYara}
+                          onChange={(e) => setIntelPayloadYara(e.target.value)}
+                          className="w-full h-36 bg-[#05070c] border border-slate-800 rounded-xl p-3.5 text-cyan-400 font-mono text-[0.72rem] focus:outline-none focus:border-indigo-500 resize-none leading-relaxed"
+                          placeholder="Enter hex stream or text..."
+                        />
+                        <button
+                          onClick={handleRunYara}
+                          className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white font-bold text-xs py-3 rounded-lg transition-all shadow-lg shadow-indigo-500/20 cursor-pointer"
+                        >
+                          ⚡ Execute YARA Engine Scan
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-4">
+                        <label htmlFor="intel-payload-siem" className="text-[0.68rem] text-slate-500 uppercase tracking-wider font-semibold block">
+                          Simulated Telemetry Log Event (JSON)
+                        </label>
+                        <textarea
+                          id="intel-payload-siem"
+                          value={intelFormat === 'kql' ? intelPayloadKql : intelPayloadSpl}
+                          onChange={(e) => {
+                            if (intelFormat === 'kql') setIntelPayloadKql(e.target.value);
+                            else setIntelPayloadSpl(e.target.value);
+                          }}
+                          className="w-full h-36 bg-[#05070c] border border-slate-800 rounded-xl p-3.5 text-cyan-400 font-mono text-[0.72rem] focus:outline-none focus:border-indigo-500 resize-none leading-relaxed"
+                          placeholder="Enter log JSON..."
+                        />
+                        <button
+                          onClick={handleRunSIEM}
+                          className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 text-white font-bold text-xs py-3 rounded-lg transition-all shadow-lg shadow-indigo-500/20 cursor-pointer"
+                        >
+                          🔍 Run {intelFormat === 'kql' ? 'KQL Query' : 'Splunk Search'} Simulation
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Simulator Outcome Display */}
+                  <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-5 backdrop-blur-xl flex flex-col gap-3">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                      Evaluation Outcome
+                    </span>
+
+                    {intelFormat === 'yara' ? (
+                      !intelYaraResult.scanned ? (
+                        <div className="bg-slate-900/40 border border-slate-800/80 p-4 rounded-xl text-center text-xs text-slate-500">
+                          Awaiting YARA scan...
+                        </div>
+                      ) : intelYaraResult.error ? (
+                        <div className="bg-rose-950/20 border border-rose-500/30 text-rose-400 p-4 rounded-xl text-xs font-mono">
+                          ⚠️ Scanner Error: {intelYaraResult.error}
+                        </div>
+                      ) : intelYaraResult.triggered ? (
+                        <div className="bg-emerald-950/20 border border-emerald-500/40 p-4 rounded-xl flex flex-col gap-2">
+                          <div className="text-emerald-400 font-bold text-xs flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                            ✅ YARA Hit: Threat Detected!
+                          </div>
+                          <p className="text-[0.7rem] text-slate-400 leading-normal">
+                            The inspected file payload satisfies the condition requirements of the YARA rule.
+                          </p>
+                          <div className="mt-2 border-t border-emerald-500/20 pt-2 flex flex-col gap-1">
+                            <span className="text-[0.65rem] text-emerald-300 font-bold uppercase">Matched Strings:</span>
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                              {intelYaraResult.matchedStrings.map((str, idx) => (
+                                <span key={idx} className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-mono text-[0.66rem]">
+                                  {str}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl flex flex-col gap-2">
+                          <div className="text-slate-400 font-bold text-xs flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                            ❌ YARA Clean: No Matches
+                          </div>
+                          <p className="text-[0.7rem] text-slate-500 leading-normal">
+                            The inspected payload does not trigger the rule strings or condition thresholds.
+                          </p>
+                        </div>
+                      )
+                    ) : (
+                      !intelSIEMResult.executed ? (
+                        <div className="bg-slate-900/40 border border-slate-800/80 p-4 rounded-xl text-center text-xs text-slate-500">
+                          Awaiting query execution...
+                        </div>
+                      ) : intelSIEMResult.error ? (
+                        <div className="bg-rose-950/20 border border-rose-500/30 text-rose-400 p-4 rounded-xl text-xs font-mono">
+                          ⚠️ Execution Error: {intelSIEMResult.error}
+                        </div>
+                      ) : intelSIEMResult.triggered ? (
+                        <div className="bg-emerald-950/20 border border-emerald-500/40 p-4 rounded-xl flex flex-col gap-2">
+                          <div className="text-emerald-400 font-bold text-xs flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                            ✅ Query Alert Triggered!
+                          </div>
+                          <p className="text-[0.7rem] text-slate-400 leading-normal">
+                            The log values matched the query logic filters. This event generates a high-fidelity SIEM alert.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="bg-slate-900/60 border border-slate-800/80 p-4 rounded-xl flex flex-col gap-2">
+                          <div className="text-slate-400 font-bold text-xs flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                            ❌ Event Suppressed / Filtered
+                          </div>
+                          <p className="text-[0.7rem] text-slate-500 leading-normal">
+                            The telemetry log values do not satisfy the filter conditions. Query returned empty.
+                          </p>
+                        </div>
+                      )
+                    )}
+                  </div>
+
+                  {/* Educational Information Card */}
+                  <div className="bg-[#0f1322]/40 border border-slate-800/60 rounded-2xl p-5 text-xs text-slate-400 leading-relaxed">
+                    <h4 className="font-bold text-slate-200 mb-2 flex items-center gap-1">
+                      <span>💡</span> Efficacy: Detections vs. Query Searching
+                    </h4>
+                    <p className="mb-2">
+                      In threat hunting, analysts write <strong>SIEM query searches</strong> to actively sift through massive log tables. These are transient and user-driven.
+                    </p>
+                    <p>
+                      In contrast, a <strong>detection</strong> (like a YARA binary signature or a KQL alert rule) is a standardized, persistent logic block deployed to run continuously against telemetry streams, feeding the SOC alert pipeline.
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+            </>
+          );
+        })()}
+
         {/* Active Tab: COVERAGE SANDBOX */}
         {activeTab === 'sandbox' && (
           <>
@@ -1029,6 +1492,14 @@ export default function Home() {
                         Error: {parseError}
                       </div>
                     )}
+
+                    <button
+                      onClick={handleRegisterRule}
+                      disabled={!!parseError || !playgroundYaml.trim()}
+                      className="mt-3 w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:brightness-110 disabled:opacity-50 text-white font-bold text-xs py-2.5 rounded-lg transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      📥 Register & Deploy to Active Rules Registry
+                    </button>
                   </div>
                 </div>
 
@@ -1158,7 +1629,7 @@ export default function Home() {
 
         {/* Active Tab: SIEM COMPILER */}
         {activeTab === 'compiler' && (() => {
-          const selectedRule = RULES.find(r => r.id === selectedRuleIdCompiler) || RULES[0];
+          const selectedRule = registeredRules.find(r => r.id === selectedRuleIdCompiler) || registeredRules[0];
           const splunkQuery = compileToSplunk(selectedRule);
           const kqlQuery = compileToKql(selectedRule);
           
@@ -1186,7 +1657,7 @@ export default function Home() {
                       onChange={(e) => setSelectedRuleIdCompiler(e.target.value)}
                       className="w-full bg-[#05070c] border border-slate-800 text-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
                     >
-                      {RULES.map(r => (
+                      {registeredRules.map(r => (
                         <option key={r.id} value={r.id}>{r.title}</option>
                       ))}
                     </select>
@@ -1277,8 +1748,8 @@ export default function Home() {
 
         {/* Active Tab: SIMULATION LAB */}
         {activeTab === 'validation' && (() => {
-          const selectedRule = RULES.find(r => r.id === selectedRuleIdValidation) || RULES[0];
-          const dataset = MOCK_TELEMETRY[selectedRule.id] || [];
+          const selectedRule = registeredRules.find(r => r.id === selectedRuleIdValidation) || registeredRules[0];
+          const dataset = registryTelemetry[selectedRule.id] || [];
           
           const handleRunValidation = () => {
             setEmulationRunning(true);
@@ -1316,29 +1787,73 @@ export default function Home() {
                       }}
                       className="w-full bg-[#05070c] border border-slate-800 text-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
                     >
-                      {RULES.map(r => (
+                      {registeredRules.map(r => (
                         <option key={r.id} value={r.id}>{r.title}</option>
                       ))}
                     </select>
 
-                    <div className="mt-5 pt-5 border-t border-slate-800/60 text-xs text-slate-400 flex flex-col gap-3">
-                      <div className="flex justify-between">
-                        <span>Ingested Test Events:</span>
-                        <span className="font-mono text-slate-200">{dataset.length} logs</span>
+                    {isEditingDataset ? (
+                      <div className="mt-4 flex flex-col gap-3 border-t border-slate-800/60 pt-4">
+                        <label htmlFor="dataset-json-textarea" className="text-[0.68rem] text-slate-500 uppercase tracking-wider font-semibold block">
+                          Edit Test Dataset (JSON Array)
+                        </label>
+                        <textarea
+                          id="dataset-json-textarea"
+                          value={datasetJsonText}
+                          onChange={(e) => setDatasetJsonText(e.target.value)}
+                          className="w-full h-48 bg-[#05070c] border border-slate-800 rounded-lg p-2.5 text-cyan-400 font-mono text-[0.7rem] focus:outline-none focus:border-indigo-500 resize-y leading-relaxed"
+                          placeholder="[\n  {\n    &quot;EventID&quot;: 1,\n    &quot;label&quot;: &quot;malicious&quot;,\n    ...\n  }\n]"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleSaveDataset}
+                            className="flex-grow bg-emerald-600 hover:bg-emerald-500 text-white text-[0.68rem] font-bold py-2 rounded transition-all cursor-pointer"
+                          >
+                            Save Changes
+                          </button>
+                          <button
+                            onClick={() => {
+                              const dataset = registryTelemetry[selectedRuleIdValidation] || [];
+                              setDatasetJsonText(JSON.stringify(dataset, null, 2));
+                              setIsEditingDataset(false);
+                            }}
+                            className="flex-grow bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 text-[0.68rem] font-bold py-2 rounded transition-all cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex justify-between">
-                        <span>Malicious Events:</span>
-                        <span className="font-mono text-rose-400">{dataset.filter(d => d.label === 'malicious').length} logs</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Benign Events:</span>
-                        <span className="font-mono text-emerald-400">{dataset.filter(d => d.label === 'benign').length} logs</span>
-                      </div>
-                    </div>
+                    ) : (
+                      <>
+                        <div className="mt-5 pt-5 border-t border-slate-800/60 text-xs text-slate-400 flex flex-col gap-3">
+                          <div className="flex justify-between">
+                            <span>Ingested Test Events:</span>
+                            <span className="font-mono text-slate-200">{dataset.length} logs</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Malicious Events:</span>
+                            <span className="font-mono text-rose-400">{dataset.filter(d => d.label === 'malicious').length} logs</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Benign Events:</span>
+                            <span className="font-mono text-emerald-400">{dataset.filter(d => d.label === 'benign').length} logs</span>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 mt-4">
+                          <button
+                            onClick={() => setIsEditingDataset(true)}
+                            className="w-full bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs py-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                          >
+                            ✏️ Edit Test Dataset
+                          </button>
+                        </div>
+                      </>
+                    )}
 
                     <button 
                       onClick={handleRunValidation}
-                      disabled={emulationRunning}
+                      disabled={emulationRunning || isEditingDataset}
                       className="mt-6 w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:brightness-110 disabled:opacity-50 text-white font-bold text-xs py-3 rounded-lg transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 cursor-pointer"
                     >
                       {emulationRunning ? (
@@ -1541,7 +2056,7 @@ export default function Home() {
                             dns: "d8d74542-a8b2-4d26-bb21-1d361c47a544"
                           };
                           const defaultRuleId = sourceToRuleMap[selectedSourceType];
-                          const defaultLog = MOCK_TELEMETRY[defaultRuleId]?.[0] || {};
+                          const defaultLog = registryTelemetry[defaultRuleId]?.[0] || {};
                           const { label, ...cleanLog } = defaultLog;
                           setAuditJsonInput(JSON.stringify(cleanLog, null, 2));
                           setAuditReport(null);
@@ -1831,13 +2346,24 @@ export default function Home() {
           <div className="flex flex-col gap-8">
             {/* Section 1: Custom Athena DaC Rules Registry */}
             <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6">
-              <header className="border-b border-slate-800/60 pb-5 mb-6">
-                <h2 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
-                  🛡️ Active Project Athena Rules Registry
-                </h2>
-                <p className="text-slate-400 text-xs">
-                  Inspect the production-grade threat detection rules we engineered. Click a rule row to inspect its raw Sigma YAML spec and live SIEM query compilation pipelines.
-                </p>
+              <header className="border-b border-slate-800/60 pb-5 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+                    🛡️ Active Project Athena Rules Registry
+                  </h2>
+                  <p className="text-slate-400 text-xs">
+                    Inspect the production-grade threat detection rules we engineered. Click a rule row to inspect its raw Sigma YAML spec and live SIEM query compilation pipelines.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setPlaygroundTemplate("process_creation");
+                    setActiveTab("playground");
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shadow-md shadow-emerald-500/20 flex items-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  <span>➕</span> Write New Detection
+                </button>
               </header>
 
               <div className="overflow-x-auto">
@@ -1854,7 +2380,7 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody>
-                    {RULES.map((rule) => {
+                    {registeredRules.map((rule) => {
                       const isExpanded = expandedRuleIds.has(rule.id);
                       const toggleExpand = () => {
                         const next = new Set(expandedRuleIds);
@@ -2108,7 +2634,7 @@ export default function Home() {
           let parseError: string | null = null;
           
           if (resilienceTabMode === 'registry') {
-            const registryRule = RULES.find(r => r.id === resilienceRuleId) || RULES[0];
+            const registryRule = registeredRules.find(r => r.id === resilienceRuleId) || registeredRules[0];
             auditedRule = registryRule;
           } else {
             try {
@@ -2116,7 +2642,7 @@ export default function Home() {
             } catch (e: any) {
               parseError = e.message;
               auditedRule = {
-                ...RULES[0],
+                ...registeredRules[0],
                 title: "Malformed Custom Rule",
                 yaml_string: resilienceYaml
               };
@@ -2170,7 +2696,7 @@ export default function Home() {
                           onChange={(e) => setResilienceRuleId(e.target.value)}
                           className="w-full bg-[#05070c] border border-slate-800 text-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
                         >
-                          {RULES.map(r => (
+                          {registeredRules.map(r => (
                             <option key={r.id} value={r.id}>{r.title}</option>
                           ))}
                         </select>

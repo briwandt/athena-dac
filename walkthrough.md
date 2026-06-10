@@ -27,12 +27,35 @@ graph TD
 
 ---
 
+## 📝 Threat Intel to Detection Lab
+
+We added the **Threat Intel to Detection Lab** to demonstrate how detection rules are engineered directly from active intelligence briefings (e.g. CISA Advisories):
+- **CISA Advisory Selection**: Users select real threat briefs, such as **APT29 Web Server Exploitation** or **LockBit Ransomware Persistence**. Crucial technical keywords and indicators are highlighted dynamically in the report block.
+- **Construction Breakdown Guides**: Explains step-by-step how to identify file signatures, extract process commands, and map SIEM search logic from raw reporting.
+- **YARA Binary Scanner**: Scans user-supplied payloads (auto-detecting hex streams versus ASCII text) to test string indicators like `$token` or headers like `$magic`.
+- **KQL & SPL Telemetry Simulators**: Simulates live SIEM engines checking log events against compiled rules. Results output clear indicator matching reports (triggered alerts vs. filtered noise).
+
+---
+
+## 📥 Dynamic Custom Rule Registration & Testing (New)
+
+Engineers can now fully author, register, and evaluate their own detection rules inside the live application state:
+- **Registry Integration**: AUTHOR rules in the DaC Playground and click **"Register & Deploy to Active Rules Registry"**. This parses the Sigma YAML and injects the new rule dynamically into the registry state.
+- **Global Propagation**: Authoring a custom rule instantly updates the rule dropdown selections in:
+  1. The **SIEM Compiler Tab** (enabling live SPL/KQL translation).
+  2. The **Rules Database Tab** (populating active registry tables and generating Palantir ADS spec documentation).
+  3. The **Resilience Auditor Tab** (auditing resilience scores and highlighting pain-index categories).
+  4. The **Simulation & Validation Lab** (populating test metrics dropdowns).
+- **Interactive Test Suite Editor**: Inside the Simulation & Validation Lab, click **"✏️ Edit Test Dataset"** to view and edit a JSON array of simulated events for the active rule. Engineers can write custom benign (label: `benign`) and malicious (label: `malicious`) logs to test rules and recalculate Precision, Recall, and Confusion Matrices on-the-fly.
+
+---
+
 ## 💻 Interactive Detection-as-Code (DaC) Playground
 
 To make the platform an active, hands-on workspace for writing, testing, and implementing detections, we added the interactive **DaC Playground** workspace:
 - **Live Sigma YAML Editor**: A monospaced code editing workspace featuring dynamic client-side parsing. It validates YAML syntax on-the-fly and displays validation status badges (Valid/Malformed).
 - **Dual SIEM Compiler Pipeline**: Instantly compiles user-edited rules into functional Splunk SPL and Microsoft Sentinel KQL queries, updating dynamically as the engineer edits the logic.
-- **Log Evaluation Simulator**: Allows the engineer to input/paste a telemetry event payload in JSON format (pre-populated with starter logs). Clicking "Evaluate Detection Logic" evaluates the YAML selectors and boolean condition rules client-side to output an immediate green/amber alert trigger feedback state.
+- **Log Simulator**: Allows the engineer to input/paste a telemetry event payload in JSON format (pre-populated with starter logs). Clicking "Evaluate Detection Logic" evaluates the YAML selectors and boolean condition rules client-side to output an immediate green/amber alert trigger feedback state.
 
 ---
 
@@ -105,6 +128,16 @@ The **Telemetry Health Auditor** assesses log schemas to discover ingestion issu
 To support active containment triaging:
 * Input Hostnames, IPs, Usernames, and File Hashes into the Fast Scoper.
 * It generates index-optimized, time-bounded scoping queries for both Splunk and Microsoft Sentinel, allowing incident responders to scan the entire environment during active incident response.
+
+---
+
+## 📐 Heuristic Resilience Auditor & Operational Axioms
+
+To incorporate advanced security concepts and interview-prep philosophies, we added the **Resilience & Axioms** workspace:
+- **Pyramid of Pain Rule Auditor**: A heuristic evaluation engine that inspects a rule's Sigma YAML strings and determines where it sits on David Bianco's Pyramid of Pain (from Hash Value to TTPs). It classifies rules as *Fragile* (Score 1-3), *Moderate* (Score 4-5), or *Resilient* (Score 6) and lists recommendations to pivot to higher-fidelity logic.
+- **3D-Styled Pyramid of Pain stack visualizer**: A tilted 3D CSS container that highlights the audited rule's layer (e.g. glowing green for TTP, glowing red for Hash).
+- **Interactive Operational Axioms Carousel**: Displays the 10 operational hot-takes and philosophies (axioms) for high-impact Detection Engineering extracted from raw course materials. Includes slide dot progress and prev/next navigation button actions.
+- **Rules Database Integration**: Each deployed rule in the **Rules Database** is now automatically evaluated and labeled with a dynamic, color-coded resilience badge showing its exact pain index and layer classification.
 
 ---
 
