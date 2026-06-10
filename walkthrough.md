@@ -141,6 +141,16 @@ To incorporate advanced security concepts and interview-prep philosophies, we ad
 
 ---
 
+## 🤖 MITRE ATLAS Integration (AI Security)
+
+To address the security of Artificial Intelligence and Large Language Model systems, we integrated the **MITRE ATLAS (Adversarial Threat Landscape for Artificial-Intelligence Systems)** framework:
+- **Interactive AI ATLAS Matrix**: Toggles dynamically on the Campaign Heatmap tab. Maps 9 custom tactics (Reconnaissance to Impact) and their respective techniques (like Prompt Injection, Model Extraction, and LLM Prompt Trickery).
+- **Simulated AI Attack Scenario**: Pre-populates the **MITRE ATLAS: LLM Prompt Injection & Model Extraction** campaign. Simulates an adversary executing API probing, prompt injections, obfuscated jailbreaks, parameter extraction, and resource exhaustion DoS.
+- **Production-Grade Prompt Injection Rule**: Deploys the `Adversarial LLM Prompt Injection Attempt` rule into the active rules registry, fully compiling to SPL/KQL and validating client-side.
+- **Resilience Scoring for AI Rules**: Automatically evaluates prompt injection rules under the Heuristic Resilience Auditor, mapping them as Moderate resilience Network Artifacts and providing specific remediation pathways (e.g. Prompt Shields, Llama Guard, pre-processing decoders).
+
+---
+
 ## 🚀 Deployed URL & Codebase
 
 The application is deployed publicly on Vercel and is fully hosted client-side for zero execution latency:

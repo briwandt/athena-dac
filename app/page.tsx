@@ -199,6 +199,90 @@ const MITRE_SCHEMA = [
   }
 ];
 
+// MITRE ATLAS Tactic Matrix Schema for AI systems
+const MITRE_ATLAS_SCHEMA = [
+  {
+    tacticId: "AML.TA0002",
+    tacticName: "Reconnaissance",
+    techniques: [
+      { id: "AML.T0024", name: "Active Probing" },
+      { id: "AML.T0026", name: "Query Model API" },
+      { id: "AML.T0002", name: "Search Global Info" }
+    ]
+  },
+  {
+    tacticId: "AML.TA0003",
+    tacticName: "Resource Development",
+    techniques: [
+      { id: "AML.T0016", name: "Create Prompt Library" },
+      { id: "AML.T0017", name: "Craft Poison Sample" },
+      { id: "AML.T0003", name: "Acquire Compute Infrastructure" }
+    ]
+  },
+  {
+    tacticId: "AML.TA0004",
+    tacticName: "Initial Access",
+    techniques: [
+      { id: "AML.T0051", name: "Prompt Injection" },
+      { id: "AML.T0004", name: "ML Supply Chain Compromise" },
+      { id: "AML.T0010", name: "Poison Training Data" }
+    ]
+  },
+  {
+    tacticId: "AML.TA0005",
+    tacticName: "Execution",
+    techniques: [
+      { id: "AML.T0006", name: "LLM Plugin Execution" },
+      { id: "AML.T0007", name: "User Execution" },
+      { id: "AML.T0011", name: "Run Adversarial Model" }
+    ]
+  },
+  {
+    tacticId: "AML.TA0007",
+    tacticName: "Defense Evasion",
+    techniques: [
+      { id: "AML.T0015", name: "Adversarial Request / Evasion" },
+      { id: "AML.T0054", name: "LLM Prompt Trickery / Jailbreaking" },
+      { id: "AML.T0028", name: "Model Obfuscation" }
+    ]
+  },
+  {
+    tacticId: "AML.TA0008",
+    tacticName: "Discovery",
+    techniques: [
+      { id: "AML.T0023", name: "Discover ML Artifacts" },
+      { id: "AML.T0031", name: "Discover Target Model Info" },
+      { id: "AML.T0012", name: "Verify Model Architecture" }
+    ]
+  },
+  {
+    tacticId: "AML.TA0011",
+    tacticName: "ML Model Abuse",
+    techniques: [
+      { id: "AML.T0024", name: "Model Extraction" },
+      { id: "AML.T0025", name: "Model Inversion" },
+      { id: "AML.T0030", name: "Membership Inference" }
+    ]
+  },
+  {
+    tacticId: "AML.TA0014",
+    tacticName: "Exfiltration",
+    techniques: [
+      { id: "AML.T0022", name: "Exfiltrate Model via API" },
+      { id: "AML.T0040", name: "Exfiltrate Data via Web Chat" }
+    ]
+  },
+  {
+    tacticId: "AML.TA0015",
+    tacticName: "Impact",
+    techniques: [
+      { id: "AML.T0018", name: "Model Poisoning" },
+      { id: "AML.T0029", name: "Denial of Service (Long Context)" },
+      { id: "AML.T0035", name: "Model Invalidation" }
+    ]
+  }
+];
+
 // Utility: JSON syntax highlighting function
 function syntaxHighlight(jsonStr: string) {
   let json = jsonStr.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -236,6 +320,7 @@ export default function Home() {
   const [registryTelemetry, setRegistryTelemetry] = useState<Record<string, any[]>>(MOCK_TELEMETRY);
   const [isEditingDataset, setIsEditingDataset] = useState(false);
   const [datasetJsonText, setDatasetJsonText] = useState("");
+  const [matrixType, setMatrixType] = useState<'enterprise' | 'atlas'>('enterprise');
 
   const [activeTab, setActiveTab] = useState<'sandbox' | 'compiler' | 'validation' | 'telemetry_audit' | 'ir_scoper' | 'detections' | 'telemetry' | 'playground' | 'resilience' | 'intel_lab'>('intel_lab');
   const [activeCampaignId, setActiveCampaignId] = useState<string>('apt29');
@@ -392,6 +477,8 @@ export default function Home() {
   const campaign: Campaign = activeCampaignId === 'custom' && customCampaign 
     ? customCampaign 
     : CAMPAIGNS[activeCampaignId] || CAMPAIGNS.apt29;
+
+  const activeSchema = matrixType === 'enterprise' ? MITRE_SCHEMA : MITRE_ATLAS_SCHEMA;
 
   // Active coverage metrics
   const totalLogs = campaign.logs.length;
@@ -767,7 +854,7 @@ export default function Home() {
             <span className="text-[0.7rem] uppercase text-slate-500 tracking-wider font-semibold mb-2">Simulated Scenarios</span>
             
             <button 
-              onClick={() => setActiveCampaignId('apt29')}
+              onClick={() => { setActiveCampaignId('apt29'); setMatrixType('enterprise'); }}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex flex-col gap-0.5 border ${activeCampaignId === 'apt29' ? 'bg-indigo-950/20 border-indigo-500/30 text-slate-100 shadow-lg shadow-indigo-500/5' : 'border-transparent text-slate-400 hover:bg-slate-800/30'}`}
             >
               <span className="text-[0.85rem] font-semibold">APT29 Intrusion</span>
@@ -775,7 +862,7 @@ export default function Home() {
             </button>
 
             <button 
-              onClick={() => setActiveCampaignId('ransomware')}
+              onClick={() => { setActiveCampaignId('ransomware'); setMatrixType('enterprise'); }}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex flex-col gap-0.5 border ${activeCampaignId === 'ransomware' ? 'bg-indigo-950/20 border-indigo-500/30 text-slate-100 shadow-lg shadow-indigo-500/5' : 'border-transparent text-slate-400 hover:bg-slate-800/30'}`}
             >
               <span className="text-[0.85rem] font-semibold">LockBit Ransomware</span>
@@ -783,7 +870,7 @@ export default function Home() {
             </button>
 
             <button 
-              onClick={() => setActiveCampaignId('cloud')}
+              onClick={() => { setActiveCampaignId('cloud'); setMatrixType('enterprise'); }}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex flex-col gap-0.5 border ${activeCampaignId === 'cloud' ? 'bg-indigo-950/20 border-indigo-500/30 text-slate-100 shadow-lg shadow-indigo-500/5' : 'border-transparent text-slate-400 hover:bg-slate-800/30'}`}
             >
               <span className="text-[0.85rem] font-semibold">Cloud Privilege Abuse</span>
@@ -791,7 +878,7 @@ export default function Home() {
             </button>
 
             <button 
-              onClick={() => setActiveCampaignId('active_directory_escalation')}
+              onClick={() => { setActiveCampaignId('active_directory_escalation'); setMatrixType('enterprise'); }}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex flex-col gap-0.5 border ${activeCampaignId === 'active_directory_escalation' ? 'bg-indigo-950/20 border-indigo-500/30 text-slate-100 shadow-lg shadow-indigo-500/5' : 'border-transparent text-slate-400 hover:bg-slate-800/30'}`}
             >
               <span className="text-[0.85rem] font-semibold">AD Domain Escalation</span>
@@ -799,16 +886,24 @@ export default function Home() {
             </button>
 
             <button 
-              onClick={() => setActiveCampaignId('dns_tunneling_c2')}
+              onClick={() => { setActiveCampaignId('dns_tunneling_c2'); setMatrixType('enterprise'); }}
               className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex flex-col gap-0.5 border ${activeCampaignId === 'dns_tunneling_c2' ? 'bg-indigo-950/20 border-indigo-500/30 text-slate-100 shadow-lg shadow-indigo-500/5' : 'border-transparent text-slate-400 hover:bg-slate-800/30'}`}
             >
               <span className="text-[0.85rem] font-semibold">DNS Tunneling & C2</span>
               <span className="text-[0.68rem] text-slate-500">4 events • CNAME/TXT Exfil</span>
             </button>
 
+            <button 
+              onClick={() => { setActiveCampaignId('atlas_llm_compromise'); setMatrixType('atlas'); }}
+              className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex flex-col gap-0.5 border ${activeCampaignId === 'atlas_llm_compromise' ? 'bg-indigo-950/20 border-indigo-500/30 text-slate-100 shadow-lg shadow-indigo-500/5' : 'border-transparent text-slate-400 hover:bg-slate-800/30'}`}
+            >
+              <span className="text-[0.85rem] font-semibold">🤖 MITRE ATLAS AI Attack</span>
+              <span className="text-[0.68rem] text-slate-500">5 events • Prompt Inj. & Extr.</span>
+            </button>
+
             {customCampaign && (
               <button 
-                onClick={() => setActiveCampaignId('custom')}
+                onClick={() => { setActiveCampaignId('custom'); setMatrixType('enterprise'); }}
                 className={`w-full text-left px-3 py-2.5 rounded-lg transition-all flex flex-col gap-0.5 border ${activeCampaignId === 'custom' ? 'bg-indigo-950/20 border-indigo-500/30 text-slate-100 shadow-lg shadow-indigo-500/5' : 'border-transparent text-slate-400 hover:bg-slate-800/30'}`}
               >
                 <span className="text-[0.85rem] font-semibold">🛡️ Custom Uploaded Logs</span>
@@ -1174,9 +1269,25 @@ export default function Home() {
             {/* MITRE MATRIX HEATMAP */}
             <div className="bg-[#0d111c]/70 border border-slate-800/60 rounded-2xl p-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-5">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  🛡️ MITRE ATT&CK Coverage Heatmap
-                </h3>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    🛡️ {matrixType === 'enterprise' ? 'MITRE ATT&CK' : 'MITRE ATLAS'} Coverage Heatmap
+                  </h3>
+                  <div className="flex bg-[#05070c] p-0.5 rounded border border-slate-800">
+                    <button
+                      onClick={() => setMatrixType('enterprise')}
+                      className={`px-3 py-1 rounded text-[0.68rem] font-bold transition-all ${matrixType === 'enterprise' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      Enterprise ATT&CK
+                    </button>
+                    <button
+                      onClick={() => setMatrixType('atlas')}
+                      className={`px-3 py-1 rounded text-[0.68rem] font-bold transition-all ${matrixType === 'atlas' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      AI ATLAS
+                    </button>
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-4 text-xs">
                   <div className="flex items-center gap-1.5 text-slate-400">
                     <div className="w-3 h-3 rounded bg-emerald-500/10 border border-emerald-500"></div>
@@ -1199,8 +1310,8 @@ export default function Home() {
 
               {/* Scrolls matrix horizontally */}
               <div className="overflow-x-auto pb-2">
-                <div className="grid grid-cols-12 gap-2.5 min-w-[1900px]">
-                  {MITRE_SCHEMA.map((tactic) => (
+                <div className={`grid gap-2.5 ${matrixType === 'enterprise' ? 'grid-cols-12 min-w-[1900px]' : 'grid-cols-9 min-w-[1450px]'}`}>
+                  {activeSchema.map((tactic) => (
                     <div key={tactic.tacticId} className="flex flex-col gap-2.5">
                       <div className="bg-[#121829] border-b-2 border-indigo-500 p-3 rounded text-center min-h-[50px] flex flex-col justify-center shrink-0">
                         <span className="text-[0.78rem] font-bold text-white leading-tight">{tactic.tacticName}</span>

@@ -49,3 +49,12 @@
   - `[x]` Implement the interactive "Edit Test Dataset" JSON editor inside the Simulation & Validation Lab.
   - `[x]` Test local Next.js build and verify successful compilation.
   - `[x]` Push code updates to Vercel to deploy the new features.
+
+- `[x]` **Phase 9: MITRE ATLAS Framework Integration**
+  - `[x]` Implement AI/ML TTP Matrix representing the core tactics (AML.TA) and techniques (AML.T) defined in the ATLAS framework.
+  - `[x]` Support toggling between Enterprise ATT&CK and AI ATLAS matrices in the Campaign Heatmap tab.
+  - `[x]` Register simulated LLM Prompt Injection and Model Extraction attack campaign.
+  - `[x]` Deploy a functional prompt injection Sigma rule that compiles to SPL/KQL and passes validation with simulated datasets.
+  - `[x]` Add customized heuristic resilience evaluations for ATLAS and LLM security rules.
+  - `[x]` Test local Next.js build and verify zero errors.
+  - `[x]` Push updates to main to synchronize Vercel.

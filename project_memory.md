@@ -78,8 +78,10 @@ c:\Users\user\Documents\AntiGravity\detection engineering\
 - **Operational Axioms Feed**: A card carousel slide showing 10 personal hot-takes/axioms from the core document (e.g. Intent Understanding, Feedback Loop, Breaks Inevitability, Simplicity Wins) for engineering interview prep.
 - **Rules Database Resilience Badge**: Dynamic badges mapped to rule records in the active registry.
 
-### 9. Threat Intel to Detection Lab
-- Includes CISA report parser guides, visual indicator highlighting, and simulation runners (YARA scanner, KQL log matches, and SPL filter queries) client-side.
+### 10. MITRE ATLAS Integration (AI/ML TTP Matrix)
+- **ATLAS Schema Mappings**: Maps `AML.TA####` tactic IDs and `AML.T####` technique IDs to enable high-fidelity security coverage tracking for LLM API and deployment environments.
+- **Dynamic Matrix Layout**: Adjusts responsive grid columns (`grid-cols-9` vs `grid-cols-12`) and minimum widths depending on the active matrix selection (`enterprise` vs `atlas`).
+- **AI Rule Profiler**: Automatically assesses LLM prompt injection and application filters, generating specific remediation guidance and profiling rules on David Bianco's Pyramid of Pain under the `Network Artifact` category.
 
 ---
 
